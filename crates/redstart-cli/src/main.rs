@@ -44,6 +44,15 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Watch `.red` files and re-run check → build → test on every change.
+    Dev {
+        /// Path to a project directory, `redstart.toml`, or a `.red` file.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Run the pipeline once and exit (handy for CI).
+        #[arg(long)]
+        once: bool,
+    },
     /// Format `.red` files into the canonical layout.
     Fmt {
         /// A `.red` file or a directory to format recursively.
@@ -62,6 +71,7 @@ fn main() -> ExitCode {
         Command::Check { path } => cmd_check(&path),
         Command::Build { path } => cmd_build(&path),
         Command::Test { path } => cmd_test(&path),
+        Command::Dev { path, once } => cmd_dev(&path, once),
         Command::Fmt { path, check } => cmd_fmt(&path, check),
     };
     match result {
@@ -150,6 +160,107 @@ fn cmd_test(path: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("\n✗ {}/{total} failed", total - passed))
+    }
+}
+
+fn cmd_dev(path: &Path, once: bool) -> Result<(), String> {
+    if once {
+        dev_once(path);
+        return Ok(());
+    }
+
+    let root = if path.is_file() {
+        path.parent().unwrap_or(Path::new(".")).to_path_buf()
+    } else {
+        path.to_path_buf()
+    };
+    println!("redstart dev — watching {} (Ctrl-C to stop)", root.display());
+
+    let mut last = String::new();
+    let mut n = 0u64;
+    loop {
+        let fp = fingerprint(&root);
+        if fp != last {
+            last = fp;
+            n += 1;
+            println!("\n\x1b[1;36m── rebuild #{n} ──\x1b[0m");
+            dev_once(path);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+}
+
+/// One pass of the dev pipeline: load → check → build → test, printing each step
+/// and never aborting the process (so the watch loop keeps going).
+fn dev_once(path: &Path) {
+    let tree = match load(path) {
+        Ok(t) => t,
+        Err(e) => return eprintln!("\x1b[31m✗ load\x1b[0m\n{e}"),
+    };
+    let mut checked = match check(&tree) {
+        Ok(c) => c,
+        Err(e) => return eprintln!("\x1b[31m✗ check\x1b[0m\n{e}"),
+    };
+    println!("  \x1b[32m✓\x1b[0m check");
+
+    let generated = redstart_codegen::generate(&tree, &mut checked);
+    match generated.write_to(&tree.out_dir) {
+        Ok(()) => {
+            for w in &generated.warnings {
+                eprintln!("    warning: {w}");
+            }
+            println!("  \x1b[32m✓\x1b[0m build → {}", tree.out_dir.display());
+        }
+        Err(e) => return eprintln!("  \x1b[31m✗ build\x1b[0m: {e}"),
+    }
+
+    let report = redstart_test::run_tests(&tree, &checked);
+    if report.results.is_empty() {
+        println!("  \x1b[2m·\x1b[0m no tests");
+        return;
+    }
+    for r in &report.results {
+        match &r.outcome {
+            redstart_test::Outcome::Pass => println!("  \x1b[32m✓\x1b[0m {}", r.name),
+            redstart_test::Outcome::Fail { message, location } => {
+                let at = location.as_deref().map_or(String::new(), |l| format!(" ({l})"));
+                println!("  \x1b[31m✗\x1b[0m {}{at}\n      {message}", r.name);
+            }
+        }
+    }
+    let (passed, total) = (report.passed(), report.results.len());
+    let mark = if report.ok() { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
+    println!("  {mark} {passed}/{total} tests");
+}
+
+/// A change-detection fingerprint: sorted `path|mtime` for every `.red` and
+/// `.json` (ABI) file under `root`, skipping the build output and hidden dirs.
+fn fingerprint(root: &Path) -> String {
+    let mut entries = Vec::new();
+    collect_fingerprint(root, &mut entries);
+    entries.sort();
+    entries.join("\n")
+}
+
+fn collect_fingerprint(dir: &Path, out: &mut Vec<String>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if p.is_dir() {
+            if name == "build" || name.starts_with('.') {
+                continue;
+            }
+            collect_fingerprint(&p, out);
+        } else if p.extension().is_some_and(|e| e == "red" || e == "json") {
+            let stamp = std::fs::metadata(&p)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            out.push(format!("{}|{stamp}", p.display()));
+        }
     }
 }
 
