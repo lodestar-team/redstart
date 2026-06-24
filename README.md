@@ -80,8 +80,11 @@ good in the lineage of Matchstick, not a venture bet.
 | `dev` watch loop, in-language `test` → Matchstick, LSP | `redstart-cli` | ⏳ later stages |
 
 The AssemblyScript lowering is the whole bet: the **kill/pivot threshold** is a
-field-level store-diff against canonical subgraph deployments. That's the next
-milestone.
+field-level store-diff against canonical subgraph deployments. The harness for it
+lives in [`conformance/`](conformance/) — `./conformance/run.sh build` proves the
+eject path (canonical `graph build` compiles our output unmodified) with only
+Node; `run.sh all` deploys our subgraph alongside an idiomatic hand-written
+reference and store-diffs them at a fixed block.
 
 ## Try it
 
