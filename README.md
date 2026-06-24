@@ -74,7 +74,8 @@ good in the lineage of Matchstick, not a venture bet.
 | `redstart.toml` manifest + multi-file module tree (cycle detection) | `redstart-loader` | ✅ working |
 | `schema.graphql` + `subgraph.yaml` generation from the unified AST | `redstart-codegen` | ✅ working |
 | AssemblyScript mapping lowering — `loadOrCreate`, `BigInt`/`BigDecimal` operators, auto-save dirty-tracking, contract calls (`Result` → `try_*`), `match` | `redstart-codegen` | ✅ vertical slice (ERC-20) |
-| Standalone type checker (`Option`/`Result`, no-`null`, exhaustive `match`) | `redstart-checker` | ⏳ next |
+| Semantic checker — unknown source/event/type, missing source settings, `derived` back-refs, required-field init, `.value`-without-`match`, arithmetic-on-`Option`, assign-to-`derived` | `redstart-checker` | ✅ working |
+| Exhaustive `match`, full `Option` flow typing, contract-call signature checks | `redstart-checker` | ⏳ deepening |
 | `dev` watch loop, `fmt`, in-language `test`, LSP | `redstart-cli` | ⏳ later stages |
 
 The AssemblyScript lowering is the whole bet: the **kill/pivot threshold** is a
@@ -120,9 +121,14 @@ model). Crates are split by compiler phase:
 ```
 redstart-parser   lex → AST  (source of all spans & diagnostics)
 redstart-loader   redstart.toml + `mod` resolution → ModuleTree
-redstart-codegen  ModuleTree → schema.graphql, subgraph.yaml, mappings.ts
+redstart-checker  ModuleTree → semantic analysis → Checked symbol table (RTy/ABI)
+redstart-codegen  ModuleTree + Checked → schema.graphql, subgraph.yaml, mappings.ts
 redstart-cli      the `redstart` binary: new / check / build (…dev/test/fmt/lsp)
 ```
+
+The resolved type system (`RTy`, ABI reading) lives in `redstart-checker` and is
+shared with codegen, so "what type is this expression" is answered in exactly one
+place.
 
 ## Design principles (ranked)
 

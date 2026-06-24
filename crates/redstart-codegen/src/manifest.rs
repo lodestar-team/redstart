@@ -5,7 +5,7 @@
 //! the manifest's `eventHandlers` list is derived, not hand-maintained — the
 //! string-typed coupling that causes manifest/handler drift today is gone.
 
-use crate::abi::AbiIndex;
+use redstart_checker::AbiIndex;
 use redstart_parser::ast::{Expr, HandlerDecl, Setting, SourceDecl, TemplateDecl};
 
 /// The spec version emitted. Redstart owns this so the developer never touches

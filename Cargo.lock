@@ -388,10 +388,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "redstart-checker"
+version = "0.1.0"
+dependencies = [
+ "miette",
+ "redstart-loader",
+ "redstart-parser",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "redstart-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "redstart-checker",
  "redstart-codegen",
  "redstart-loader",
  "redstart-parser",
@@ -401,9 +414,9 @@ dependencies = [
 name = "redstart-codegen"
 version = "0.1.0"
 dependencies = [
+ "redstart-checker",
  "redstart-loader",
  "redstart-parser",
- "serde_json",
  "tempfile",
 ]
 

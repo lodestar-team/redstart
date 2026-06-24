@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 redstart-parser.workspace = true
 redstart-loader.workspace = true
+redstart-checker.workspace = true
 redstart-codegen.workspace = true
 clap.workspace = true
 

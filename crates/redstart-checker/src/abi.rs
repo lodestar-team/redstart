@@ -62,6 +62,17 @@ impl AbiIndex {
         Some(format!("{event_name}({})", rendered.join(",")))
     }
 
+    /// Whether the ABI named `abi_name` resolves to a readable, parseable file.
+    /// Lets the checker distinguish "event missing from ABI" (error) from
+    /// "ABI file not available" (can't check — stay quiet).
+    pub fn readable(&self, abi_name: &str) -> bool {
+        self.paths
+            .get(abi_name)
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .is_some_and(|v| v.is_array())
+    }
+
     /// Whether `name` is a callable function in ABI `abi_name`.
     pub fn is_function(&self, abi_name: &str, name: &str) -> bool {
         self.function_outputs(abi_name, name).is_some()

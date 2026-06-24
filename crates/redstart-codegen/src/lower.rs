@@ -20,58 +20,10 @@
 //! The environment spans *all* modules, so a handler in one `.red` file can
 //! reference an entity declared in another — multi-file is first-class here.
 
-use crate::abi::AbiIndex;
-use redstart_parser::ast::{BinOp, Block, Expr, HandlerDecl, MatchArm, Pattern, Stmt, TypeExpr, UnOp};
+use redstart_checker::{sol_to_rty, AbiIndex, EntityInfo, RTy};
+use redstart_parser::ast::{BinOp, Block, Expr, HandlerDecl, MatchArm, Pattern, Stmt, UnOp};
 use redstart_parser::Ident;
 use std::collections::HashMap;
-
-/// A resolved Redstart type, used only for choosing correct lowerings.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RTy {
-    BigInt,
-    BigDecimal,
-    Bytes,
-    Address,
-    String,
-    Boolean,
-    Int,
-    /// An entity reference (stored as its id in graph-ts).
-    Entity(String),
-    /// `Option<T>` — nullable.
-    Option(Box<RTy>),
-    /// A list `[T]`.
-    List(Box<RTy>),
-    /// A bound contract instance for ABI `name`.
-    Contract(String),
-    /// `Result<T, CallRevert>` — the type of every contract call.
-    Result(Box<RTy>),
-    /// The handler's event object (`event`).
-    Event,
-    /// `event.params`.
-    Params,
-    /// `event.block`.
-    Block,
-    /// `event.transaction`.
-    Transaction,
-    /// Anything we couldn't resolve.
-    Unknown,
-}
-
-impl RTy {
-    fn is_bigint(&self) -> bool {
-        matches!(self, RTy::BigInt)
-    }
-    fn is_bigdecimal(&self) -> bool {
-        matches!(self, RTy::BigDecimal)
-    }
-}
-
-/// Field types for one entity.
-#[derive(Debug, Clone, Default)]
-pub struct EntityInfo {
-    /// Field name -> resolved type.
-    pub fields: HashMap<String, RTy>,
-}
 
 /// The static environment shared across all handlers.
 pub struct Env<'a> {
@@ -143,54 +95,6 @@ impl Scope {
         let n = self.tmp;
         self.tmp += 1;
         format!("_call{n}")
-    }
-}
-
-/// Map a Solidity ABI type to a resolved type.
-fn sol_to_rty(sol: &str) -> RTy {
-    if sol == "address" {
-        RTy::Address
-    } else if sol == "bool" {
-        RTy::Boolean
-    } else if sol == "string" {
-        RTy::String
-    } else if sol.starts_with("uint") || sol.starts_with("int") {
-        RTy::BigInt
-    } else if sol.starts_with("bytes") {
-        RTy::Bytes
-    } else {
-        RTy::Unknown
-    }
-}
-
-/// Resolve a syntactic type to a resolved type, given the known entity names.
-pub fn resolve_type(ty: &TypeExpr, entities: &HashMap<String, EntityInfo>) -> RTy {
-    match ty {
-        TypeExpr::List { elem, .. } => RTy::List(Box::new(resolve_type(elem, entities))),
-        TypeExpr::Generic { base, args, .. } => {
-            let name = base.simple_name().unwrap_or("");
-            match name {
-                "Option" => RTy::Option(Box::new(
-                    args.first().map_or(RTy::Unknown, |t| resolve_type(t, entities)),
-                )),
-                "Id" => args.first().map_or(RTy::Bytes, |t| resolve_type(t, entities)),
-                "List" => RTy::List(Box::new(
-                    args.first().map_or(RTy::Unknown, |t| resolve_type(t, entities)),
-                )),
-                _ => RTy::Unknown,
-            }
-        }
-        TypeExpr::Path { .. } => match ty.simple_name().unwrap_or("") {
-            "BigInt" => RTy::BigInt,
-            "BigDecimal" => RTy::BigDecimal,
-            "Bytes" => RTy::Bytes,
-            "Address" => RTy::Address,
-            "String" => RTy::String,
-            "Bool" => RTy::Boolean,
-            "Int" => RTy::Int,
-            other if entities.contains_key(other) => RTy::Entity(other.to_string()),
-            _ => RTy::Unknown,
-        },
     }
 }
 

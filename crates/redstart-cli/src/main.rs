@@ -56,11 +56,12 @@ fn main() -> ExitCode {
 
 fn cmd_check(path: &Path) -> Result<(), String> {
     let tree = load(path)?;
+    check(&tree)?;
     let modules = tree.modules.len();
     let entities: usize = tree.modules.values().map(|m| m.program.entities.len()).sum();
     let handlers: usize = tree.modules.values().map(|m| m.program.handlers.len()).sum();
     println!(
-        "✓ {} — {modules} module(s), {entities} entit(ies), {handlers} handler(s) parsed cleanly",
+        "✓ {} — {modules} module(s), {entities} entit(ies), {handlers} handler(s), no errors",
         tree.name
     );
     Ok(())
@@ -68,7 +69,8 @@ fn cmd_check(path: &Path) -> Result<(), String> {
 
 fn cmd_build(path: &Path) -> Result<(), String> {
     let tree = load(path)?;
-    let generated = redstart_codegen::generate(&tree);
+    let mut checked = check(&tree)?;
+    let generated = redstart_codegen::generate(&tree, &mut checked);
 
     generated
         .write_to(&tree.out_dir)
@@ -95,6 +97,11 @@ fn load(path: &Path) -> Result<redstart_loader::ModuleTree, String> {
             .collect::<Vec<_>>()
             .join("\n\n")
     })
+}
+
+/// Run semantic analysis, joining rendered diagnostics into one message.
+fn check(tree: &redstart_loader::ModuleTree) -> Result<redstart_checker::Checked, String> {
+    redstart_checker::check(tree).map_err(|reports| reports.join("\n"))
 }
 
 fn cmd_new(name: &str) -> Result<(), String> {
