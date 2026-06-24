@@ -5,6 +5,8 @@
 
 #![forbid(unsafe_code)]
 
+mod fmt;
+
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -36,6 +38,15 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Format `.red` files into the canonical layout.
+    Fmt {
+        /// A `.red` file or a directory to format recursively.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Check formatting without writing; exit non-zero if any file differs.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -44,6 +55,7 @@ fn main() -> ExitCode {
         Command::New { name } => cmd_new(&name),
         Command::Check { path } => cmd_check(&path),
         Command::Build { path } => cmd_build(&path),
+        Command::Fmt { path, check } => cmd_fmt(&path, check),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -102,6 +114,78 @@ fn load(path: &Path) -> Result<redstart_loader::ModuleTree, String> {
 /// Run semantic analysis, joining rendered diagnostics into one message.
 fn check(tree: &redstart_loader::ModuleTree) -> Result<redstart_checker::Checked, String> {
     redstart_checker::check(tree).map_err(|reports| reports.join("\n"))
+}
+
+fn cmd_fmt(path: &Path, check: bool) -> Result<(), String> {
+    let files = collect_red_files(path)?;
+    if files.is_empty() {
+        return Err(format!("no `.red` files found at {}", path.display()));
+    }
+
+    let mut changed = Vec::new();
+    for file in &files {
+        let src = std::fs::read_to_string(file)
+            .map_err(|e| format!("could not read {}: {e}", file.display()))?;
+        let formatted = fmt::format(&src);
+        if formatted != src {
+            changed.push(file.clone());
+            if !check {
+                std::fs::write(file, &formatted)
+                    .map_err(|e| format!("could not write {}: {e}", file.display()))?;
+            }
+        }
+    }
+
+    if check {
+        if changed.is_empty() {
+            println!("✓ all {} file(s) already formatted", files.len());
+            Ok(())
+        } else {
+            for f in &changed {
+                println!("would reformat {}", f.display());
+            }
+            Err(format!("{} file(s) need formatting", changed.len()))
+        }
+    } else {
+        if changed.is_empty() {
+            println!("✓ {} file(s) already formatted", files.len());
+        } else {
+            for f in &changed {
+                println!("formatted {}", f.display());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Collect `.red` files: a single file as-is, or all under a directory
+/// (skipping the `build` output directory and hidden folders).
+fn collect_red_files(path: &Path) -> Result<Vec<PathBuf>, String> {
+    if path.is_file() {
+        return Ok(vec![path.to_path_buf()]);
+    }
+    let mut out = Vec::new();
+    walk_red(path, &mut out).map_err(|e| format!("could not scan {}: {e}", path.display()))?;
+    out.sort();
+    Ok(out)
+}
+
+fn walk_red(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let p = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if p.is_dir() {
+            if name == "build" || name.starts_with('.') {
+                continue;
+            }
+            walk_red(&p, out)?;
+        } else if p.extension().is_some_and(|e| e == "red") {
+            out.push(p);
+        }
+    }
+    Ok(())
 }
 
 fn cmd_new(name: &str) -> Result<(), String> {

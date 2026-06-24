@@ -371,6 +371,7 @@ fn check_block(
             }
             Stmt::Assign { target, value, .. } => {
                 check_assign_target(target, ctx, locals, file, diags);
+                check_expr(target, ctx, locals, file, diags);
                 check_expr(value, ctx, locals, file, diags);
             }
             Stmt::Return { value: Some(v), .. } => check_expr(v, ctx, locals, file, diags),
@@ -408,6 +409,43 @@ fn check_match(
             }
         }
         check_block(&arm.body.stmts, ctx, &mut arm_locals, file, diags);
+    }
+
+    check_exhaustive(scrutinee, arms, &scrut_ty, file, diags);
+}
+
+/// Require a `match` to cover every variant (or carry a wildcard).
+fn check_exhaustive(scrutinee: &Expr, arms: &[MatchArm], scrut_ty: &RTy, file: &str, diags: &mut Vec<Diag>) {
+    let required: &[&str] = match scrut_ty {
+        RTy::Result(_) => &["Ok", "Err"],
+        RTy::Option(_) => &["Some", "None"],
+        _ => return, // unknown scrutinee — can't judge
+    };
+
+    let has_wildcard = arms
+        .iter()
+        .any(|a| matches!(a.pattern, Pattern::Wildcard { .. } | Pattern::Binding { .. }));
+    if has_wildcard {
+        return;
+    }
+
+    let present: Vec<&str> = arms
+        .iter()
+        .filter_map(|a| match &a.pattern {
+            Pattern::Ctor { name, .. } => Some(name.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let missing: Vec<&str> = required
+        .iter()
+        .copied()
+        .filter(|r| !present.contains(r))
+        .collect();
+    if !missing.is_empty() {
+        diags.push(
+            Diag::new(file, scrutinee.span(), "E070", format!("non-exhaustive `match`: missing {}", missing.join(", ")), "add the missing arm(s)")
+                .with_help("every variant must be handled — or add a `_ => { … }` wildcard arm"),
+        );
     }
 }
 
@@ -495,11 +533,23 @@ fn check_expr(
 ) {
     match expr {
         Expr::Field { base, field, .. } => {
-            if field.name == "value" && matches!(infer(base, ctx, locals), RTy::Result(_)) {
-                diags.push(
+            match infer(base, ctx, locals) {
+                RTy::Result(_) if field.name == "value" => diags.push(
                     Diag::new(file, &field.span, "E060", "cannot read `.value` of a contract call directly", "this call may have reverted")
                         .with_help("`match` on the result: `match call { Ok(v) => { … } Err(e) => { … } }`"),
-                );
+                ),
+                RTy::Entity(name) if field.name != "id" => {
+                    if ctx.meta.get(&name).is_some_and(|m| !m.has_field(&field.name)) {
+                        diags.push(Diag::new(
+                            file,
+                            &field.span,
+                            "E054",
+                            format!("`{name}` has no field `{}`", field.name),
+                            "unknown field",
+                        ));
+                    }
+                }
+                _ => {}
             }
             check_expr(base, ctx, locals, file, diags);
         }
@@ -518,6 +568,17 @@ fn check_expr(
             check_expr(rhs, ctx, locals, file, diags);
         }
         Expr::Call { callee, args, .. } => {
+            // Calling a function that the contract's ABI doesn't have.
+            if let Expr::Field { base, field, .. } = callee.as_ref() {
+                if let RTy::Contract(abi) = infer(base, ctx, locals) {
+                    if ctx.abis.readable(&abi) && !ctx.abis.is_function(&abi, &field.name) {
+                        diags.push(
+                            Diag::new(file, &field.span, "E071", format!("contract `{abi}` has no function `{}`", field.name), "no such function")
+                                .with_help("check the function name against the ABI (only view/pure calls are supported)"),
+                        );
+                    }
+                }
+            }
             check_expr(callee, ctx, locals, file, diags);
             for a in args {
                 check_expr(a, ctx, locals, file, diags);

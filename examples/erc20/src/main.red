@@ -26,10 +26,10 @@ handler on Token.Transfer(event) {
   // Both entities are dirty-tracked and auto-saved at handler end.
 
   let transfer = accounts::Transfer.create(event.id, {
-    from: event.params.from,
-    to: event.params.to,
-    value: event.params.value,
-    timestamp: event.block.timestamp,
+      from: event.params.from,
+      to: event.params.to,
+      value: event.params.value,
+      timestamp: event.block.timestamp,
   })
 }
 

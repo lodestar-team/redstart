@@ -75,8 +75,9 @@ good in the lineage of Matchstick, not a venture bet.
 | `schema.graphql` + `subgraph.yaml` generation from the unified AST | `redstart-codegen` | ✅ working |
 | AssemblyScript mapping lowering — `loadOrCreate`, `BigInt`/`BigDecimal` operators, auto-save dirty-tracking, contract calls (`Result` → `try_*`), `match` | `redstart-codegen` | ✅ vertical slice (ERC-20) |
 | Semantic checker — unknown source/event/type, missing source settings, `derived` back-refs, required-field init, `.value`-without-`match`, arithmetic-on-`Option`, assign-to-`derived` | `redstart-checker` | ✅ working |
-| Exhaustive `match`, full `Option` flow typing, contract-call signature checks | `redstart-checker` | ⏳ deepening |
-| `dev` watch loop, `fmt`, in-language `test`, LSP | `redstart-cli` | ⏳ later stages |
+| `redstart fmt` — canonical, comment-preserving formatting (`--check` mode) | `redstart-cli` | ✅ working |
+| Tree-sitter grammar + highlight queries (Neovim/Helix/Zed/GitHub) | `tree-sitter-redstart` | ✅ grammar written |
+| `dev` watch loop, in-language `test` → Matchstick, LSP | `redstart-cli` | ⏳ later stages |
 
 The AssemblyScript lowering is the whole bet: the **kill/pivot threshold** is a
 field-level store-diff against canonical subgraph deployments. That's the next
@@ -91,6 +92,7 @@ cargo run -p redstart-cli -- build my-subgraph
 # or against the worked example (split across two modules):
 cargo run -p redstart-cli -- check examples/erc20
 cargo run -p redstart-cli -- build examples/erc20
+cargo run -p redstart-cli -- fmt --check examples/erc20
 ```
 
 ## Project layout

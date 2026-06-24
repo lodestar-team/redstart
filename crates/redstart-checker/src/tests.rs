@@ -147,6 +147,39 @@ fn missing_source_setting_is_rejected() {
 }
 
 #[test]
+fn unknown_entity_field_is_rejected() {
+    let src = with_handler(
+        "let acct = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })\n\
+         acct.blance = event.params.value",
+    );
+    assert_err_contains(run(&src), "`Account` has no field `blance`");
+}
+
+#[test]
+fn non_exhaustive_match_is_rejected() {
+    let src = with_handler(
+        "let r = ERC20.bind(event.address).balanceOf(event.params.to)\n\
+         match r {\n  Ok(b) => {}\n}",
+    );
+    assert_err_contains(run(&src), "non-exhaustive `match`: missing Err");
+}
+
+#[test]
+fn wildcard_match_is_exhaustive() {
+    let ok = with_handler(
+        "let r = ERC20.bind(event.address).balanceOf(event.params.to)\n\
+         match r {\n  Ok(b) => {}\n  _ => {}\n}",
+    );
+    assert!(run(&ok).is_ok());
+}
+
+#[test]
+fn unknown_contract_function_is_rejected() {
+    let src = with_handler("let r = ERC20.bind(event.address).totalSupply(event.params.to)");
+    assert_err_contains(run(&src), "contract `ERC20` has no function `totalSupply`");
+}
+
+#[test]
 fn derived_backref_must_exist() {
     let src = format!(
         "{PREAMBLE}\nentity Pool {{ id: Id<Bytes> accs: [Account] derived from nope }}\n"
