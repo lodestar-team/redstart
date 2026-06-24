@@ -1,0 +1,398 @@
+//! Abstract syntax tree for Redstart.
+//!
+//! A single [`Program`] holds every declaration kind — ABIs, entities, sources,
+//! templates, handlers, functions — that today live in three drift-prone files
+//! (`schema.graphql`, `subgraph.yaml`, `src/mapping.ts`). Unifying them here is
+//! what makes manifest/schema/handler drift a *compile-time* impossibility.
+
+use crate::span::{Ident, Span};
+
+/// One parsed Redstart source file.
+#[derive(Debug, Clone, Default)]
+pub struct Program {
+    /// `mod foo;` declarations (multi-file module tree).
+    pub mods: Vec<ModDecl>,
+    /// `use a::b::c;` imports.
+    pub uses: Vec<UseDecl>,
+    /// `abi Name from "path.json"` declarations.
+    pub abis: Vec<AbiDecl>,
+    /// `entity Name { ... }` declarations.
+    pub entities: Vec<EntityDecl>,
+    /// `source Name { ... }` data sources.
+    pub sources: Vec<SourceDecl>,
+    /// `template Name { ... }` dynamic data sources.
+    pub templates: Vec<TemplateDecl>,
+    /// `handler on Source.Event(p) { ... }` event handlers.
+    pub handlers: Vec<HandlerDecl>,
+    /// Free `fn` declarations (helpers).
+    pub functions: Vec<FnDecl>,
+    /// `test "name" { ... }` blocks.
+    pub tests: Vec<TestDecl>,
+}
+
+/// `mod name;`
+#[derive(Debug, Clone)]
+pub struct ModDecl {
+    /// The child module name.
+    pub name: Ident,
+    /// Whether it is publicly re-exported (`pub mod`).
+    pub is_pub: bool,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// `use a::b::c;`
+#[derive(Debug, Clone)]
+pub struct UseDecl {
+    /// The dotted/`::`-separated path segments.
+    pub path: Vec<Ident>,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// `abi UniswapV3Pool from "./abis/UniswapV3Pool.json"`
+#[derive(Debug, Clone)]
+pub struct AbiDecl {
+    /// The in-language name bound to the ABI.
+    pub name: Ident,
+    /// The path to the ABI JSON file, relative to the source file.
+    pub path: String,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// `entity Name [modifiers] { fields }`
+#[derive(Debug, Clone)]
+pub struct EntityDecl {
+    /// The entity name.
+    pub name: Ident,
+    /// Modifiers such as `immutable`, `timeseries`.
+    pub modifiers: Vec<Ident>,
+    /// The declared fields.
+    pub fields: Vec<FieldDecl>,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// A single field inside an `entity`.
+#[derive(Debug, Clone)]
+pub struct FieldDecl {
+    /// The field name.
+    pub name: Ident,
+    /// The declared type.
+    pub ty: TypeExpr,
+    /// If `Some`, this is a `derived from <field>` virtual field. The compiler
+    /// statically forbids assigning to it.
+    pub derived_from: Option<Ident>,
+    /// Span of the whole field.
+    pub span: Span,
+}
+
+/// `source Name { key: value, ... }`
+#[derive(Debug, Clone)]
+pub struct SourceDecl {
+    /// The data source name.
+    pub name: Ident,
+    /// Settings such as `abi`, `network`, `address`, `startBlock`.
+    pub settings: Vec<Setting>,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// `template Name { key: value, ... }` — a dynamic data source (no address).
+#[derive(Debug, Clone)]
+pub struct TemplateDecl {
+    /// The template name.
+    pub name: Ident,
+    /// Settings such as `abi`, `network`.
+    pub settings: Vec<Setting>,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// A `key: value` pair inside a `source`/`template` block.
+#[derive(Debug, Clone)]
+pub struct Setting {
+    /// The setting key.
+    pub key: Ident,
+    /// The setting value expression.
+    pub value: Expr,
+    /// Span of the whole setting.
+    pub span: Span,
+}
+
+/// `handler on Source.Event(param) { body }`
+#[derive(Debug, Clone)]
+pub struct HandlerDecl {
+    /// The data source or template name the event belongs to.
+    pub source: Ident,
+    /// The event name (resolved against the source's ABI).
+    pub event: Ident,
+    /// The handler parameter binding (conventionally `event`).
+    pub param: Ident,
+    /// The handler body.
+    pub body: Block,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// `fn name(params) -> ret { body }`
+#[derive(Debug, Clone)]
+pub struct FnDecl {
+    /// The function name.
+    pub name: Ident,
+    /// Whether it is publicly exported.
+    pub is_pub: bool,
+    /// The parameters.
+    pub params: Vec<Param>,
+    /// The optional return type.
+    pub ret: Option<TypeExpr>,
+    /// The function body.
+    pub body: Block,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// A function parameter.
+#[derive(Debug, Clone)]
+pub struct Param {
+    /// The parameter name.
+    pub name: Ident,
+    /// The parameter type.
+    pub ty: TypeExpr,
+    /// Span of the parameter.
+    pub span: Span,
+}
+
+/// `test "description" { body }`
+#[derive(Debug, Clone)]
+pub struct TestDecl {
+    /// The test description string.
+    pub name: String,
+    /// The test body.
+    pub body: Block,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// A type expression.
+#[derive(Debug, Clone)]
+pub enum TypeExpr {
+    /// A named type, possibly module-qualified: `Pool`, `BigInt`, `foo::Bar`.
+    Path { segments: Vec<Ident>, span: Span },
+    /// A generic application: `Id<Bytes>`, `Option<T>`, `Result<T, E>`.
+    Generic {
+        base: Box<TypeExpr>,
+        args: Vec<TypeExpr>,
+        span: Span,
+    },
+    /// A list type written `[T]`.
+    List { elem: Box<TypeExpr>, span: Span },
+}
+
+impl TypeExpr {
+    /// The span of this type expression.
+    #[must_use]
+    pub fn span(&self) -> &Span {
+        match self {
+            TypeExpr::Path { span, .. }
+            | TypeExpr::Generic { span, .. }
+            | TypeExpr::List { span, .. } => span,
+        }
+    }
+
+    /// For a simple single-segment path type, its name. Useful for the checker.
+    #[must_use]
+    pub fn simple_name(&self) -> Option<&str> {
+        match self {
+            TypeExpr::Path { segments, .. } if segments.len() == 1 => {
+                Some(segments[0].name.as_str())
+            }
+            _ => None,
+        }
+    }
+}
+
+/// A `{ ... }` block of statements.
+#[derive(Debug, Clone)]
+pub struct Block {
+    /// The statements in order.
+    pub stmts: Vec<Stmt>,
+    /// Span of the whole block.
+    pub span: Span,
+}
+
+/// A statement.
+#[derive(Debug, Clone)]
+pub enum Stmt {
+    /// `let name [: ty] = value;`
+    Let {
+        name: Ident,
+        ty: Option<TypeExpr>,
+        value: Expr,
+        span: Span,
+    },
+    /// `target = value;` — e.g. `pool.liquidity = event.params.liquidity`.
+    Assign {
+        target: Expr,
+        value: Expr,
+        span: Span,
+    },
+    /// `return [value];`
+    Return { value: Option<Expr>, span: Span },
+    /// An expression used as a statement (e.g. a method call).
+    Expr(Expr),
+}
+
+impl Stmt {
+    /// The span of this statement.
+    #[must_use]
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::Let { span, .. }
+            | Stmt::Assign { span, .. }
+            | Stmt::Return { span, .. } => span.clone(),
+            Stmt::Expr(e) => e.span().clone(),
+        }
+    }
+}
+
+/// An expression.
+#[derive(Debug, Clone)]
+pub enum Expr {
+    /// An integer literal, kept as text so `BigInt` literals never overflow.
+    Int { raw: String, span: Span },
+    /// A `0x...` hex literal (address or bytes).
+    Hex { raw: String, span: Span },
+    /// A decimal literal, kept as text for `BigDecimal` fidelity.
+    Decimal { raw: String, span: Span },
+    /// A string literal (already unescaped).
+    Str { value: String, span: Span },
+    /// A boolean literal.
+    Bool { value: bool, span: Span },
+    /// A bare identifier, possibly `::`-qualified (`event`, `foo::bar`).
+    Path { segments: Vec<Ident>, span: Span },
+    /// Field/member access: `base.field`.
+    Field {
+        base: Box<Expr>,
+        field: Ident,
+        span: Span,
+    },
+    /// A call: `callee(args)`. Method calls are `Field` then `Call`.
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+        span: Span,
+    },
+    /// A record literal: `{ field: value, ... }` (used by `loadOrCreate`/`create`).
+    Record {
+        fields: Vec<(Ident, Expr)>,
+        span: Span,
+    },
+    /// A binary operation.
+    Binary {
+        op: BinOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
+    /// A unary operation (`!x`, `-x`).
+    Unary {
+        op: UnOp,
+        expr: Box<Expr>,
+        span: Span,
+    },
+    /// A `match scrutinee { pattern => body, ... }` expression.
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+        span: Span,
+    },
+}
+
+impl Expr {
+    /// The span of this expression.
+    #[must_use]
+    pub fn span(&self) -> &Span {
+        match self {
+            Expr::Int { span, .. }
+            | Expr::Hex { span, .. }
+            | Expr::Decimal { span, .. }
+            | Expr::Str { span, .. }
+            | Expr::Bool { span, .. }
+            | Expr::Path { span, .. }
+            | Expr::Field { span, .. }
+            | Expr::Call { span, .. }
+            | Expr::Record { span, .. }
+            | Expr::Binary { span, .. }
+            | Expr::Unary { span, .. }
+            | Expr::Match { span, .. } => span,
+        }
+    }
+}
+
+/// One arm of a `match` expression.
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    /// The pattern to match.
+    pub pattern: Pattern,
+    /// The arm body.
+    pub body: Block,
+    /// Span of the whole arm.
+    pub span: Span,
+}
+
+/// A `match` pattern. Deliberately small for v0.1.
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    /// A constructor pattern with bindings: `Some(x)`, `Ok(v)`, `Err(e)`.
+    Ctor {
+        name: Ident,
+        bindings: Vec<Ident>,
+        span: Span,
+    },
+    /// A wildcard `_`.
+    Wildcard { span: Span },
+    /// A bare binding identifier.
+    Binding { name: Ident, span: Span },
+}
+
+/// Binary operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    /// `+`
+    Add,
+    /// `-`
+    Sub,
+    /// `*`
+    Mul,
+    /// `/`
+    Div,
+    /// `%`
+    Rem,
+    /// `==`
+    Eq,
+    /// `!=`
+    Ne,
+    /// `<`
+    Lt,
+    /// `<=`
+    Le,
+    /// `>`
+    Gt,
+    /// `>=`
+    Ge,
+    /// `&&`
+    And,
+    /// `||`
+    Or,
+}
+
+/// Unary operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnOp {
+    /// `!`
+    Not,
+    /// `-`
+    Neg,
+}

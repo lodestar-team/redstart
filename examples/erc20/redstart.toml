@@ -1,0 +1,5 @@
+[project]
+name = "erc20-balances"
+entry = "src/main.red"
+out_dir = "build"
+description = "Tracks ERC-20 account balances — the Redstart vertical slice."

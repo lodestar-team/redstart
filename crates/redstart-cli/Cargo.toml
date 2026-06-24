@@ -1,0 +1,20 @@
+[package]
+name = "redstart-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The Redstart command-line toolchain"
+
+[[bin]]
+name = "redstart"
+path = "src/main.rs"
+
+[dependencies]
+redstart-parser.workspace = true
+redstart-loader.workspace = true
+redstart-codegen.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

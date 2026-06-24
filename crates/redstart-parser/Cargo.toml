@@ -1,0 +1,15 @@
+[package]
+name = "redstart-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Lexer and parser for the Redstart subgraph language"
+
+[dependencies]
+logos.workspace = true
+miette.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
