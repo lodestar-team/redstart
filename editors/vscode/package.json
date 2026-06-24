@@ -1,0 +1,43 @@
+{
+  "name": "redstart",
+  "displayName": "Redstart",
+  "description": "Language support for Redstart subgraph files (.red)",
+  "version": "0.1.0",
+  "publisher": "lodestar-team",
+  "repository": "https://github.com/lodestar-team/redstart",
+  "license": "MIT",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:redstart"],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "redstart",
+        "aliases": ["Redstart"],
+        "extensions": [".red"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "redstart",
+        "scopeName": "source.redstart",
+        "path": "./redstart.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Redstart",
+      "properties": {
+        "redstart.serverPath": {
+          "type": "string",
+          "default": "redstart",
+          "description": "Path to the `redstart` binary used as the language server."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

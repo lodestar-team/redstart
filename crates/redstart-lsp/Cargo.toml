@@ -1,23 +1,17 @@
 [package]
-name = "redstart-cli"
+name = "redstart-lsp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The Redstart command-line toolchain"
-
-[[bin]]
-name = "redstart"
-path = "src/main.rs"
+description = "Language server for Redstart (diagnostics, formatting, symbols, hover, completion)"
 
 [dependencies]
 redstart-parser.workspace = true
 redstart-loader.workspace = true
 redstart-checker.workspace = true
-redstart-codegen.workspace = true
-redstart-test.workspace = true
-redstart-lsp.workspace = true
-clap.workspace = true
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "macros"] }
 
 [lints]
 workspace = true

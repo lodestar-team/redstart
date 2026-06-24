@@ -79,7 +79,8 @@ good in the lineage of Matchstick, not a venture bet.
 | `redstart fmt` — canonical, comment-preserving formatting (`--check` mode) | `redstart-cli` | ✅ working |
 | `redstart dev` — watch loop re-running check → build → test on every change | `redstart-cli` | ✅ working |
 | Tree-sitter grammar + highlight queries (Neovim/Helix/Zed/GitHub) | `tree-sitter-redstart` | ✅ grammar written |
-| LSP (hover, go-to-def, completion, inline diagnostics) | `redstart-cli` | ⏳ later stages |
+| `redstart lsp` — language server: diagnostics, formatting, symbols, hover, go-to-def, completion | `redstart-lsp` | ✅ working |
+| VS Code extension (LSP client + TextMate highlighting) | `editors/vscode` | ✅ working |
 
 The AssemblyScript lowering is the whole bet: the **kill/pivot threshold** is a
 field-level store-diff against canonical subgraph deployments. The harness for it
@@ -159,7 +160,8 @@ redstart-loader   redstart.toml + `mod` resolution → ModuleTree
 redstart-checker  ModuleTree → semantic analysis → Checked symbol table (RTy/ABI)
 redstart-codegen  ModuleTree + Checked → schema.graphql, subgraph.yaml, mappings.ts
 redstart-test     ModuleTree → native interpreter for `test` blocks (mock store)
-redstart-cli      the `redstart` binary: new / check / build / test / dev / fmt (…lsp)
+redstart-lsp      tower-lsp language server (diagnostics/format/symbols/hover/def)
+redstart-cli      the `redstart` binary: new / check / build / test / dev / fmt / lsp
 ```
 
 The resolved type system (`RTy`, ABI reading) lives in `redstart-checker` and is

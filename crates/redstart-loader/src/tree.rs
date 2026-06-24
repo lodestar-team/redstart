@@ -68,20 +68,33 @@ pub struct ParsedModule {
 /// # Errors
 /// Returns every error encountered (manifest, IO, lex, parse, resolution).
 pub fn load(path: &Path) -> Result<ModuleTree, Vec<LoadError>> {
+    load_with_overlay(path, HashMap::new())
+}
+
+/// Like [`load`], but reads in-memory contents from `overlay` (keyed by
+/// canonicalized path) in preference to disk. Used by the language server to
+/// analyze unsaved edits.
+///
+/// # Errors
+/// Returns every error encountered (manifest, IO, lex, parse, resolution).
+pub fn load_with_overlay(
+    path: &Path,
+    overlay: HashMap<PathBuf, String>,
+) -> Result<ModuleTree, Vec<LoadError>> {
     if path.is_file() {
         if path.extension().is_some_and(|e| e == "red") {
-            return load_single_file(path);
+            return load_single_file(path, overlay);
         }
         if path.file_name().is_some_and(|n| n == "redstart.toml") {
-            return load_project(path.parent().unwrap_or(Path::new(".")));
+            return load_project(path.parent().unwrap_or(Path::new(".")), overlay);
         }
     }
-    load_project(path)
+    load_project(path, overlay)
 }
 
 /// Load a single `.red` file with no surrounding project.
-fn load_single_file(path: &Path) -> Result<ModuleTree, Vec<LoadError>> {
-    let mut loader = ModuleLoader::new();
+fn load_single_file(path: &Path, overlay: HashMap<PathBuf, String>) -> Result<ModuleTree, Vec<LoadError>> {
+    let mut loader = ModuleLoader::new(overlay);
     loader.load_module(&[], path)?;
     let name = path
         .file_stem()
@@ -102,7 +115,7 @@ fn load_single_file(path: &Path) -> Result<ModuleTree, Vec<LoadError>> {
 }
 
 /// Load a project from a directory containing `redstart.toml`.
-fn load_project(dir: &Path) -> Result<ModuleTree, Vec<LoadError>> {
+fn load_project(dir: &Path, overlay: HashMap<PathBuf, String>) -> Result<ModuleTree, Vec<LoadError>> {
     let manifest_path = dir.join("redstart.toml");
     if !manifest_path.exists() {
         return Err(vec![LoadError::NoManifest {
@@ -117,7 +130,7 @@ fn load_project(dir: &Path) -> Result<ModuleTree, Vec<LoadError>> {
         return Err(vec![LoadError::MissingEntry { path: entry }]);
     }
 
-    let mut loader = ModuleLoader::new();
+    let mut loader = ModuleLoader::new(overlay);
     loader.load_module(&[], &entry)?;
 
     Ok(ModuleTree {
@@ -132,13 +145,15 @@ fn load_project(dir: &Path) -> Result<ModuleTree, Vec<LoadError>> {
 struct ModuleLoader {
     modules: HashMap<ModulePath, ParsedModule>,
     loading: HashSet<PathBuf>,
+    overlay: HashMap<PathBuf, String>,
 }
 
 impl ModuleLoader {
-    fn new() -> Self {
+    fn new(overlay: HashMap<PathBuf, String>) -> Self {
         Self {
             modules: HashMap::new(),
             loading: HashSet::new(),
+            overlay,
         }
     }
 
@@ -155,12 +170,16 @@ impl ModuleLoader {
         }
         self.loading.insert(canonical.clone());
 
-        let source = std::fs::read_to_string(file).map_err(|source| {
-            vec![LoadError::Io {
-                path: file.to_path_buf(),
-                source,
-            }]
-        })?;
+        // Prefer in-memory overlay contents (unsaved editor buffers) over disk.
+        let source = match self.overlay.get(&canonical).or_else(|| self.overlay.get(file)) {
+            Some(s) => s.clone(),
+            None => std::fs::read_to_string(file).map_err(|source| {
+                vec![LoadError::Io {
+                    path: file.to_path_buf(),
+                    source,
+                }]
+            })?,
+        };
         let source_arc: Arc<str> = Arc::from(source.as_str());
         let filename = file.display().to_string();
 

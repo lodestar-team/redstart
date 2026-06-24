@@ -12,4 +12,4 @@ mod tree;
 
 pub use error::LoadError;
 pub use manifest::{ManifestError, ProjectManifest, ProjectSection};
-pub use tree::{load, ModulePath, ModuleTree, ParsedModule};
+pub use tree::{load, load_with_overlay, ModulePath, ModuleTree, ParsedModule};

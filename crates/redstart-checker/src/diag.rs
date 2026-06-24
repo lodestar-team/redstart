@@ -19,8 +19,12 @@ pub struct Diag {
     help: Option<String>,
     code: String,
     src: NamedSource<String>,
-    offset: usize,
-    len: usize,
+    /// The file this diagnostic belongs to.
+    pub file: String,
+    /// Byte offset of the labelled span.
+    pub offset: usize,
+    /// Byte length of the labelled span.
+    pub len: usize,
 }
 
 impl Diag {
@@ -38,6 +42,7 @@ impl Diag {
             help: None,
             code: format!("redstart::check::{code}"),
             src: NamedSource::new(file, span.source.to_string()),
+            file: file.to_string(),
             offset: span.start,
             len: span.len(),
         }
@@ -48,6 +53,18 @@ impl Diag {
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
         self
+    }
+
+    /// The diagnostic code (e.g. `redstart::check::E051`).
+    #[must_use]
+    pub fn code_str(&self) -> &str {
+        &self.code
+    }
+
+    /// The help line, if any.
+    #[must_use]
+    pub fn help_str(&self) -> Option<&str> {
+        self.help.as_deref()
     }
 
     /// Render this diagnostic to a string using the graphical handler.

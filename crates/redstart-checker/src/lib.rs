@@ -24,9 +24,8 @@ mod diag;
 pub mod ty;
 
 pub use abi::{resolve_abi_path, AbiIndex, EventParam};
+pub use diag::Diag;
 pub use ty::{is_scalar, resolve_type, sol_to_rty, EntityInfo, RTy};
-
-use diag::Diag;
 use redstart_loader::ModuleTree;
 use redstart_parser::ast::{
     EntityDecl, Expr, FieldDecl, HandlerDecl, MatchArm, Pattern, Setting, SourceDecl, Stmt,
@@ -50,6 +49,22 @@ pub struct Checked {
 /// # Errors
 /// Returns the rendered diagnostics if any check fails.
 pub fn check(tree: &ModuleTree) -> Result<Checked, Vec<String>> {
+    let (checked, diags) = analyze(tree);
+    if diags.is_empty() {
+        Ok(checked)
+    } else {
+        Err(diags.iter().map(Diag::render).collect())
+    }
+}
+
+/// Run semantic analysis, returning structured diagnostics (empty if clean).
+/// Used by the language server to publish editor squiggles.
+#[must_use]
+pub fn check_diags(tree: &ModuleTree) -> Vec<Diag> {
+    analyze(tree).1
+}
+
+fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
     let mut diags: Vec<Diag> = Vec::new();
 
     // ---- gather modules with their filenames ----
@@ -140,15 +155,14 @@ pub fn check(tree: &ModuleTree) -> Result<Checked, Vec<String>> {
         }
     }
 
-    if diags.is_empty() {
-        Ok(Checked {
+    (
+        Checked {
             entities,
             source_abi,
             abis,
-        })
-    } else {
-        Err(diags.iter().map(Diag::render).collect())
-    }
+        },
+        diags,
+    )
 }
 
 // ---- entity metadata (from AST) ----

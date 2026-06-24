@@ -5,9 +5,8 @@
 
 #![forbid(unsafe_code)]
 
-mod fmt;
-
 use clap::{Parser, Subcommand};
+use redstart_parser::fmt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -62,6 +61,8 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Start the language server over stdio (for editor integration).
+    Lsp,
 }
 
 fn main() -> ExitCode {
@@ -73,6 +74,10 @@ fn main() -> ExitCode {
         Command::Test { path } => cmd_test(&path),
         Command::Dev { path, once } => cmd_dev(&path, once),
         Command::Fmt { path, check } => cmd_fmt(&path, check),
+        Command::Lsp => {
+            redstart_lsp::run();
+            Ok(())
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

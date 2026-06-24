@@ -1,0 +1,50 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Redstart",
+  "scopeName": "source.redstart",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#strings" },
+    { "include": "#numbers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.redstart", "match": "//.*$" },
+        { "name": "comment.block.redstart", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.redstart",
+          "match": "\\b(abi|from|entity|source|template|handler|on|derived|match|let|return|fn|mod|use|test|pub)\\b"
+        },
+        { "name": "constant.language.redstart", "match": "\\b(true|false)\\b" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.redstart",
+          "match": "\\b(BigInt|BigDecimal|Bytes|Address|String|Bool|Int|Int8|ID|Option|Result|Id|List)\\b"
+        },
+        { "name": "entity.name.type.redstart", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.redstart",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [{ "name": "constant.character.escape.redstart", "match": "\\\\." }]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.hex.redstart", "match": "\\b0x[0-9a-fA-F]+\\b" },
+        { "name": "constant.numeric.redstart", "match": "\\b[0-9][0-9_]*(\\.[0-9][0-9_]*)?\\b" }
+      ]
+    }
+  }
+}
