@@ -89,6 +89,10 @@ eject path (canonical `graph build` compiles our output unmodified) with only
 Node; `run.sh all` deploys our subgraph alongside an idiomatic hand-written
 reference and store-diffs them at a fixed block.
 
+> **✅ Eject path proven.** `graph codegen` + `graph build` compile the generated
+> ERC-20 subgraph unmodified into WebAssembly (`build/Token/Token.wasm`). The
+> canonical toolchain accepts Redstart's output with zero manual edits.
+
 ## Try it
 
 ```sh

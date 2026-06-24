@@ -34,8 +34,9 @@ REF_NAME="${REF_NAME:-redstart/reference}"
 GRAPH_NODE_ADMIN="${GRAPH_NODE_ADMIN:-http://localhost:8020}"
 GRAPH_NODE_QUERY="${GRAPH_NODE_QUERY:-http://localhost:8000}"
 IPFS="${IPFS:-http://localhost:5001}"
-GRAPH_CLI="${GRAPH_CLI:-@graphprotocol/graph-cli@latest}"
-GRAPH_TS="${GRAPH_TS:-@graphprotocol/graph-ts@latest}"
+GRAPH_CLI="${GRAPH_CLI:-@graphprotocol/graph-cli}"
+GRAPH_TS="${GRAPH_TS:-@graphprotocol/graph-ts}"
+GRAPH_VERSION="${GRAPH_VERSION:-latest}"
 BLOCK="${BLOCK:-}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -65,8 +66,8 @@ graph_compile() {
   "name": "redstart-conformance-build",
   "private": true,
   "devDependencies": {
-    "$GRAPH_CLI": "*",
-    "$GRAPH_TS": "*"
+    "$GRAPH_CLI": "$GRAPH_VERSION",
+    "$GRAPH_TS": "$GRAPH_VERSION"
   }
 }
 JSON

@@ -168,7 +168,7 @@ handler on Token.Transfer(event) {
     #[test]
     fn schema_and_manifest_reflect_source() {
         let gen = build_demo();
-        assert!(gen.schema.contains("type Account @entity {"));
+        assert!(gen.schema.contains("type Account @entity(immutable: false) {"));
         assert!(gen.schema.contains("balance: BigInt!"));
         assert!(gen
             .manifest

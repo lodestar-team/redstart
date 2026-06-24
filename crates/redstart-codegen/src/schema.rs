@@ -30,22 +30,15 @@ fn render_entity(out: &mut String, entity: &EntityDecl) {
 }
 
 fn entity_directives(entity: &EntityDecl) -> String {
-    // `@entity` always; honour the `immutable` / `timeseries` modifiers.
+    // Modern graph-cli requires an explicit `immutable` argument on `@entity`.
     let immutable = entity.modifiers.iter().any(|m| m.name == "immutable");
     let timeseries = entity.modifiers.iter().any(|m| m.name == "timeseries");
 
-    let mut args = Vec::new();
-    if immutable {
-        args.push("immutable: true".to_string());
-    }
+    let mut args = vec![format!("immutable: {immutable}")];
     if timeseries {
         args.push("timeseries: true".to_string());
     }
-    if args.is_empty() {
-        "@entity".to_string()
-    } else {
-        format!("@entity({})", args.join(", "))
-    }
+    format!("@entity({})", args.join(", "))
 }
 
 fn render_field(field: &FieldDecl) -> String {
@@ -141,7 +134,7 @@ mod tests {
     #[test]
     fn renders_scalars_and_nonnull() {
         let s = schema_of("entity Token { id: Id<Bytes> symbol: String supply: BigInt }");
-        assert!(s.contains("type Token @entity {"));
+        assert!(s.contains("type Token @entity(immutable: false) {"));
         assert!(s.contains("id: Bytes!"));
         assert!(s.contains("symbol: String!"));
         assert!(s.contains("supply: BigInt!"));
