@@ -7,7 +7,6 @@
 
 use crate::abi::AbiIndex;
 use redstart_parser::ast::{Expr, HandlerDecl, Setting, SourceDecl, TemplateDecl};
-use std::collections::HashMap;
 
 /// The spec version emitted. Redstart owns this so the developer never touches
 /// the `specVersion`/`apiVersion` compatibility matrix.
@@ -28,8 +27,6 @@ pub struct ManifestInput<'a> {
     pub handlers: &'a [&'a HandlerDecl],
     /// All entity names (declared in the schema).
     pub entity_names: &'a [String],
-    /// Map of ABI name -> declared file path (as written in the `.red` source).
-    pub abi_files: &'a HashMap<String, String>,
 }
 
 /// Render `subgraph.yaml`, collecting any warnings (e.g. unresolved signatures).
@@ -124,12 +121,10 @@ fn render_mapping(
     }
 
     out.push_str("      abis:\n");
-    let abi_file = input
-        .abi_files
-        .get(abi)
-        .cloned()
-        .unwrap_or_else(|| format!("./abis/{abi}.json"));
-    out.push_str(&format!("        - name: {abi}\n          file: {abi_file}\n"));
+    // ABIs are copied into the build dir, so the manifest references them locally.
+    out.push_str(&format!(
+        "        - name: {abi}\n          file: ./abis/{abi}.json\n"
+    ));
 
     out.push_str("      eventHandlers:\n");
     for handler in input.handlers.iter().filter(|h| h.source.name == source_name) {
@@ -149,7 +144,7 @@ fn render_mapping(
         ));
     }
 
-    out.push_str("      file: ./mappings.ts\n");
+    out.push_str("      file: ./src/mappings.ts\n");
 }
 
 /// The AssemblyScript handler function name Redstart derives for an event.

@@ -81,7 +81,8 @@ fn cmd_build(path: &Path) -> Result<(), String> {
     println!("✓ built {} → {}", tree.name, tree.out_dir.display());
     println!("  • schema.graphql");
     println!("  • subgraph.yaml");
-    println!("  • mappings.ts (skeleton — handler lowering lands in Stage 1)");
+    println!("  • src/mappings.ts");
+    println!("  • abis/ ({} file(s))", generated.abi_copies.len());
     Ok(())
 }
 
@@ -113,7 +114,8 @@ fn cmd_new(name: &str) -> Result<(), String> {
         ),
     )?;
     write_file(&root.join(".gitignore"), "/build\n")?;
-    write_file(&src.join("main.red"), STARTER_RED)?;
+    write_file(&src.join("main.red"), STARTER_MAIN)?;
+    write_file(&src.join("accounts.red"), STARTER_ACCOUNTS)?;
     write_file(&abis.join("ERC20.json"), STARTER_ABI)?;
 
     println!("✓ created `{name}`");
@@ -125,15 +127,14 @@ fn write_file(path: &Path, contents: &str) -> Result<(), String> {
     std::fs::write(path, contents).map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
-const STARTER_RED: &str = r#"// Welcome to Redstart. One file, one source of truth:
+const STARTER_MAIN: &str = r#"// Welcome to Redstart. One source of truth, split across modules:
 // this generates schema.graphql, subgraph.yaml, and the mappings together.
+//
+// Entities live in `accounts.red`, pulled in here with `mod`.
+
+mod accounts;
 
 abi ERC20 from "./abis/ERC20.json"
-
-entity Account {
-  id: Id<Bytes>
-  balance: BigInt
-}
 
 source Token {
   abi: ERC20
@@ -143,9 +144,18 @@ source Token {
 }
 
 handler on Token.Transfer(event) {
-  let to = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })
+  let to = accounts::Account.loadOrCreate(event.params.to, { balance: BigInt.zero })
   to.balance = to.balance + event.params.value
   // auto-saved at handler end (dirty-tracked)
+}
+"#;
+
+const STARTER_ACCOUNTS: &str = r#"// Entities for the starter subgraph, loaded via `mod accounts;` in main.red.
+
+entity Account {
+  id: Id<Bytes>
+  balance: BigInt
+  label: Option<String>   // Option<T> is how nullability is expressed — no `null`
 }
 "#;
 

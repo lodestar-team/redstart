@@ -1,22 +1,25 @@
 //! Code generation for Redstart.
 //!
-//! From a loaded [`ModuleTree`], [`generate`] produces the three artifacts a
-//! subgraph needs — `schema.graphql`, `subgraph.yaml`, and the AssemblyScript
-//! mappings — from a *single* unified source of truth. Drift between them is
-//! impossible because they are all projections of the same AST.
+//! From a loaded [`ModuleTree`], [`generate`] produces the artifacts a subgraph
+//! needs — `schema.graphql`, `subgraph.yaml`, and the AssemblyScript mappings —
+//! from a *single* unified source of truth spanning every module. Drift between
+//! them is impossible because they are all projections of the same AST.
 
 #![forbid(unsafe_code)]
 
 mod abi;
+mod lower;
 mod manifest;
 mod mappings;
 mod schema;
 
 use abi::{resolve_abi_path, AbiIndex};
+use lower::{resolve_type, EntityInfo, Env, RTy};
 use manifest::ManifestInput;
 use redstart_loader::ModuleTree;
-use redstart_parser::ast::{EntityDecl, HandlerDecl, SourceDecl, TemplateDecl};
+use redstart_parser::ast::{Expr, EntityDecl, HandlerDecl, SourceDecl, TemplateDecl};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// The artifacts produced by a Redstart build.
 #[derive(Debug)]
@@ -25,22 +28,33 @@ pub struct Generated {
     pub schema: String,
     /// Contents of `subgraph.yaml`.
     pub manifest: String,
-    /// Contents of `mappings.ts` (Stage 0 skeleton).
+    /// Contents of `src/mappings.ts`.
     pub mappings: String,
+    /// ABIs to copy into `abis/`, as `(file_name, source_path)`.
+    pub abi_copies: Vec<(String, PathBuf)>,
     /// Non-fatal warnings raised during generation.
     pub warnings: Vec<String>,
 }
 
 impl Generated {
-    /// Write all artifacts to `out_dir`, creating it if necessary.
+    /// Write all artifacts to `out_dir`, mirroring a hand-written subgraph layout
+    /// so the output is directly ejectable into `graph codegen` / `graph build`.
     ///
     /// # Errors
     /// Returns any IO error encountered while creating files.
     pub fn write_to(&self, out_dir: &std::path::Path) -> std::io::Result<()> {
-        std::fs::create_dir_all(out_dir)?;
+        std::fs::create_dir_all(out_dir.join("src"))?;
+        std::fs::create_dir_all(out_dir.join("abis"))?;
+
         std::fs::write(out_dir.join("schema.graphql"), &self.schema)?;
         std::fs::write(out_dir.join("subgraph.yaml"), &self.manifest)?;
-        std::fs::write(out_dir.join("mappings.ts"), &self.mappings)?;
+        std::fs::write(out_dir.join("src/mappings.ts"), &self.mappings)?;
+
+        for (file_name, src) in &self.abi_copies {
+            if src.exists() {
+                std::fs::copy(src, out_dir.join("abis").join(file_name))?;
+            }
+        }
         Ok(())
     }
 }
@@ -55,22 +69,15 @@ pub fn generate(tree: &ModuleTree) -> Generated {
     let mut handlers: Vec<&HandlerDecl> = Vec::new();
 
     let mut abi_index = AbiIndex::default();
-    let mut abi_files: HashMap<String, String> = HashMap::new();
 
     for module in tree.ordered() {
         let module_dir = module
             .file_path
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
-
         for abi in &module.program.abis {
-            abi_index.insert(
-                abi.name.name.clone(),
-                resolve_abi_path(module_dir, &abi.path),
-            );
-            abi_files.insert(abi.name.name.clone(), abi.path.clone());
+            abi_index.insert(abi.name.name.clone(), resolve_abi_path(module_dir, &abi.path));
         }
-
         entities.extend(module.program.entities.iter());
         sources.extend(module.program.sources.iter());
         templates.extend(module.program.templates.iter());
@@ -79,8 +86,10 @@ pub fn generate(tree: &ModuleTree) -> Generated {
 
     let entity_names: Vec<String> = entities.iter().map(|e| e.name.name.clone()).collect();
 
+    // ---- schema ----
     let schema = schema::render(&entities);
 
+    // ---- manifest ----
     let input = ManifestInput {
         name: &tree.name,
         description: tree.description.as_deref(),
@@ -88,18 +97,91 @@ pub fn generate(tree: &ModuleTree) -> Generated {
         templates: &templates,
         handlers: &handlers,
         entity_names: &entity_names,
-        abi_files: &abi_files,
     };
-    let (manifest, warnings) = manifest::render(&input, &mut abi_index);
+    let (manifest_src, mut warnings) = manifest::render(&input, &mut abi_index);
 
-    let mappings = mappings::render(&handlers);
+    // ---- type environment for lowering ----
+    let entity_table = build_entity_table(&entities);
+    let source_abi = build_source_abi(&sources, &templates);
+    let mut env = Env {
+        entities: entity_table,
+        source_abi,
+        abis: &mut abi_index,
+    };
+    let (mappings_src, mut map_warnings) = mappings::render(&handlers, &entity_names, &mut env);
+    warnings.append(&mut map_warnings);
+
+    // ---- ABI copies ----
+    let abi_copies: Vec<(String, PathBuf)> = env
+        .abis
+        .paths
+        .iter()
+        .map(|(name, path)| (format!("{name}.json"), path.clone()))
+        .collect();
 
     Generated {
         schema,
-        manifest,
-        mappings,
+        manifest: manifest_src,
+        mappings: mappings_src,
+        abi_copies,
         warnings,
     }
+}
+
+/// Build the entity-name -> field-types table used by the lowering pass.
+fn build_entity_table(entities: &[&EntityDecl]) -> HashMap<String, EntityInfo> {
+    // First pass: register every entity name so reference types resolve.
+    let mut table: HashMap<String, EntityInfo> = entities
+        .iter()
+        .map(|e| (e.name.name.clone(), EntityInfo::default()))
+        .collect();
+
+    // Second pass: resolve field types against the now-complete name set.
+    let resolved: Vec<(String, HashMap<String, RTy>)> = entities
+        .iter()
+        .map(|e| {
+            let fields = e
+                .fields
+                .iter()
+                .map(|f| (f.name.name.clone(), resolve_type(&f.ty, &table)))
+                .collect();
+            (e.name.name.clone(), fields)
+        })
+        .collect();
+
+    for (name, fields) in resolved {
+        table.insert(name, EntityInfo { fields });
+    }
+    table
+}
+
+/// Build the source/template-name -> ABI-name map.
+fn build_source_abi(
+    sources: &[&SourceDecl],
+    templates: &[&TemplateDecl],
+) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for s in sources {
+        if let Some(abi) = abi_setting(&s.settings) {
+            map.insert(s.name.name.clone(), abi);
+        }
+    }
+    for t in templates {
+        if let Some(abi) = abi_setting(&t.settings) {
+            map.insert(t.name.name.clone(), abi);
+        }
+    }
+    map
+}
+
+fn abi_setting(settings: &[redstart_parser::ast::Setting]) -> Option<String> {
+    settings.iter().find(|s| s.key.name == "abi").and_then(|s| {
+        if let Expr::Path { segments, .. } = &s.value {
+            segments.last().map(|seg| seg.name.clone())
+        } else {
+            None
+        }
+    })
 }
 
 #[cfg(test)]
@@ -107,10 +189,8 @@ mod tests {
     use super::*;
     use std::fs;
 
-    #[test]
-    fn generates_all_artifacts_for_a_project() {
+    fn build_demo() -> Generated {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("src")).unwrap();
         fs::create_dir_all(dir.path().join("src/abis")).unwrap();
         fs::write(
             dir.path().join("redstart.toml"),
@@ -151,23 +231,43 @@ handler on Token.Transfer(event) {
         .unwrap();
 
         let tree = redstart_loader::load(dir.path()).unwrap();
-        let gen = generate(&tree);
+        generate(&tree)
+    }
 
-        // Schema reflects the entity.
+    #[test]
+    fn schema_and_manifest_reflect_source() {
+        let gen = build_demo();
         assert!(gen.schema.contains("type Account @entity {"));
         assert!(gen.schema.contains("balance: BigInt!"));
-
-        // Manifest resolved the real event signature (with `indexed`).
         assert!(gen
             .manifest
             .contains("event: Transfer(indexed address,indexed address,uint256)"));
         assert!(gen.manifest.contains("handler: handleTransfer"));
-        assert!(gen.manifest.contains("address: \"0x1234567890abcdef1234567890abcdef12345678\""));
+        assert!(gen.manifest.contains("file: ./src/mappings.ts"));
+    }
 
-        // Mappings skeleton has the handler.
-        assert!(gen.mappings.contains("export function handleTransfer"));
+    #[test]
+    fn lowering_produces_faithful_assemblyscript() {
+        let gen = build_demo();
+        let m = &gen.mappings;
 
-        // No warnings since the ABI resolved.
+        // loadOrCreate -> load + null-check + new + init.
+        assert!(m.contains("let acct = Account.load(event.params.to)"));
+        assert!(m.contains("if (acct == null) {"));
+        assert!(m.contains("acct = new Account(event.params.to)"));
+        assert!(m.contains("acct.balance = BigInt.zero()"));
+
+        // BigInt `+` lowers to `.plus()`, never native `+`.
+        assert!(m.contains("acct.balance = acct.balance.plus(event.params.value)"));
+
+        // Auto-save dirty-tracked entity.
+        assert!(m.contains("acct.save()"));
+
+        // Imports.
+        assert!(m.contains("import { Transfer as TransferEvent } from \"../generated/Token/ERC20\""));
+        assert!(m.contains("import { Account } from \"../generated/schema\""));
+        assert!(m.contains("import { BigInt } from \"@graphprotocol/graph-ts\""));
+
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
 }

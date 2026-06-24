@@ -1,15 +1,17 @@
 # Redstart
 
-**A single-file language for authoring The Graph subgraphs.**
+**A multi-file language for authoring The Graph subgraphs.**
 
 Today a subgraph is three loosely-coupled artifacts — `schema.graphql`,
 `subgraph.yaml`, and AssemblyScript mappings — stitched together by stringly-typed
 names and a manual `graph codegen` step. Drift between them is the dominant source
 of *"it compiled but failed at runtime, three hours into a sync."*
 
-Redstart unifies all three into one language, type-checks them against each other,
+Redstart unifies all three into one language — split across as many `.red` modules
+as you like (`mod`/`use`, just like Rust) — type-checks them against each other,
 and transpiles to readable AssemblyScript that the canonical `graph build`
-toolchain compiles unmodified. The entire class of AssemblyScript footguns —
+toolchain compiles unmodified. Entities can live in one module and the handlers
+that write them in another; the compiler resolves and checks across all of them. The entire class of AssemblyScript footguns —
 nullable-arithmetic miscompiles, `==`/`===` inversion, reverted-call aborts,
 array prefill, forgotten `.save()` — becomes **unrepresentable by construction**.
 
@@ -71,8 +73,8 @@ good in the lineage of Matchstick, not a venture bet.
 | Lexer + parser (`logos` + recursive descent, `miette` diagnostics) | `redstart-parser` | ✅ working |
 | `redstart.toml` manifest + multi-file module tree (cycle detection) | `redstart-loader` | ✅ working |
 | `schema.graphql` + `subgraph.yaml` generation from the unified AST | `redstart-codegen` | ✅ working |
-| AssemblyScript mapping lowering (handler bodies) | `redstart-codegen` | 🚧 skeleton only |
-| Type checker (`Option`/`Result`, no-`null`, `BigInt`/`BigDecimal` operators) | `redstart-checker` | ⏳ next |
+| AssemblyScript mapping lowering — `loadOrCreate`, `BigInt`/`BigDecimal` operators, auto-save dirty-tracking | `redstart-codegen` | ✅ vertical slice (ERC-20) |
+| Standalone type checker (`Option`/`Result`, no-`null`, exhaustive `match`) | `redstart-checker` | ⏳ next |
 | `dev` watch loop, `fmt`, in-language `test`, LSP | `redstart-cli` | ⏳ later stages |
 
 The AssemblyScript lowering is the whole bet: the **kill/pivot threshold** is a
@@ -85,10 +87,30 @@ milestone.
 cargo run -p redstart-cli -- new my-subgraph
 cargo run -p redstart-cli -- build my-subgraph
 
-# or against the worked example:
+# or against the worked example (split across two modules):
 cargo run -p redstart-cli -- check examples/erc20
 cargo run -p redstart-cli -- build examples/erc20
 ```
+
+## Project layout
+
+A project is a `redstart.toml` plus a tree of `.red` modules. The entry module
+pulls in others with `mod`; any module can reference another's declarations.
+
+```
+my-subgraph/
+  redstart.toml        # [project] name / entry / out_dir
+  src/
+    main.red           # mod accounts;  +  abi / source / handler
+    accounts.red       # entity Account, entity Transfer
+    abis/ERC20.json
+  build/               # generated: schema.graphql, subgraph.yaml, src/mappings.ts, abis/
+```
+
+`mod accounts;` resolves to `accounts.red` (or `accounts/mod.red`), exactly like
+Rust. The example's `Token.Transfer` handler in `main.red` loads and writes the
+`Account` and `Transfer` entities declared in `accounts.red` — across modules,
+type-checked, no drift.
 
 ## Architecture
 
