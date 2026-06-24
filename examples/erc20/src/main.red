@@ -32,3 +32,18 @@ handler on Token.Transfer(event) {
     timestamp: event.block.timestamp,
   })
 }
+
+handler on Token.Approval(event) {
+  // Contract calls return Result — you must `match` before touching the value,
+  // so a reverted call can never silently abort the handler.
+  let result = ERC20.bind(event.address).balanceOf(event.params.owner)
+  match result {
+    Ok(currentBalance) => {
+      let owner = accounts::Account.loadOrCreate(event.params.owner, { balance: BigInt.zero })
+      owner.balance = currentBalance
+    }
+    Err(e) => {
+      // call reverted — leave balances untouched
+    }
+  }
+}

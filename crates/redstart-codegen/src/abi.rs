@@ -62,6 +62,39 @@ impl AbiIndex {
         Some(format!("{event_name}({})", rendered.join(",")))
     }
 
+    /// Whether `name` is a callable function in ABI `abi_name`.
+    pub fn is_function(&self, abi_name: &str, name: &str) -> bool {
+        self.function_outputs(abi_name, name).is_some()
+    }
+
+    /// The Solidity output types of function `name` in ABI `abi_name`, if any.
+    pub fn function_outputs(&self, abi_name: &str, name: &str) -> Option<Vec<String>> {
+        let path = self.paths.get(abi_name)?;
+        let text = std::fs::read_to_string(path).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+        for item in json.as_array()? {
+            if item.get("type").and_then(|t| t.as_str()) != Some("function") {
+                continue;
+            }
+            if item.get("name").and_then(|n| n.as_str()) != Some(name) {
+                continue;
+            }
+            let outputs = item.get("outputs").and_then(|o| o.as_array())?;
+            return Some(
+                outputs
+                    .iter()
+                    .map(|o| {
+                        o.get("type")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("bytes")
+                            .to_string()
+                    })
+                    .collect(),
+            );
+        }
+        None
+    }
+
     fn read_event(&self, abi_name: &str, event_name: &str) -> Option<Vec<EventParam>> {
         let path = self.paths.get(abi_name)?;
         let text = std::fs::read_to_string(path).ok()?;

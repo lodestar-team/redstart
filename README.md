@@ -73,7 +73,7 @@ good in the lineage of Matchstick, not a venture bet.
 | Lexer + parser (`logos` + recursive descent, `miette` diagnostics) | `redstart-parser` | ✅ working |
 | `redstart.toml` manifest + multi-file module tree (cycle detection) | `redstart-loader` | ✅ working |
 | `schema.graphql` + `subgraph.yaml` generation from the unified AST | `redstart-codegen` | ✅ working |
-| AssemblyScript mapping lowering — `loadOrCreate`, `BigInt`/`BigDecimal` operators, auto-save dirty-tracking | `redstart-codegen` | ✅ vertical slice (ERC-20) |
+| AssemblyScript mapping lowering — `loadOrCreate`, `BigInt`/`BigDecimal` operators, auto-save dirty-tracking, contract calls (`Result` → `try_*`), `match` | `redstart-codegen` | ✅ vertical slice (ERC-20) |
 | Standalone type checker (`Option`/`Result`, no-`null`, exhaustive `match`) | `redstart-checker` | ⏳ next |
 | `dev` watch loop, `fmt`, in-language `test`, LSP | `redstart-cli` | ⏳ later stages |
 

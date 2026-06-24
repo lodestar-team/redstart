@@ -2,23 +2,27 @@
 //!
 //! This is the core of the whole bet: emit the AssemblyScript a careful human
 //! would write, so the canonical `graph build` toolchain consumes it unmodified
-//! (the eject path). A lightweight type environment — entity field types plus
-//! ABI-derived event parameter types — is enough to make the footgun-prone
-//! lowerings correct:
+//! (the eject path). A lightweight type environment — entity field types, ABI
+//! event-parameter types, and ABI function return types — is enough to make the
+//! footgun-prone lowerings correct:
 //!
 //! - `BigInt`/`BigDecimal` operators (`+ - * /`) lower to `.plus()`/`.minus()`/
 //!   `.times()`/`.div()`, never silent native arithmetic.
-//! - `loadOrCreate` lowers to the load → null-check → `new` → init dance, with
-//!   required field initialisers, so the nullable-arithmetic miscompile and the
-//!   forgotten-init crash cannot occur.
-//! - Entities created or mutated in a handler are auto-saved (dirty-tracked) at
-//!   handler end, so a forgotten `.save()` cannot silently drop writes.
+//! - `loadOrCreate` lowers to the load → null-check → `new` → init dance, so the
+//!   nullable-arithmetic miscompile and the forgotten-init crash cannot occur.
+//! - Contract calls return `Result`, lowered to graph-ts `try_*` + `.reverted`.
+//!   You cannot touch a reverted call's value because you must `match` it first.
+//! - `match` on `Result`/`Option` lowers to the corresponding `.reverted` /
+//!   null-check `if`/`else`.
+//! - Entities created or mutated are auto-saved (dirty-tracked) at the end of the
+//!   scope where they were declared — including inside `match` arms.
 //!
 //! The environment spans *all* modules, so a handler in one `.red` file can
 //! reference an entity declared in another — multi-file is first-class here.
 
 use crate::abi::AbiIndex;
-use redstart_parser::ast::{BinOp, Block, Expr, HandlerDecl, Stmt, TypeExpr, UnOp};
+use redstart_parser::ast::{BinOp, Block, Expr, HandlerDecl, MatchArm, Pattern, Stmt, TypeExpr, UnOp};
+use redstart_parser::Ident;
 use std::collections::HashMap;
 
 /// A resolved Redstart type, used only for choosing correct lowerings.
@@ -37,6 +41,10 @@ pub enum RTy {
     Option(Box<RTy>),
     /// A list `[T]`.
     List(Box<RTy>),
+    /// A bound contract instance for ABI `name`.
+    Contract(String),
+    /// `Result<T, CallRevert>` — the type of every contract call.
+    Result(Box<RTy>),
     /// The handler's event object (`event`).
     Event,
     /// `event.params`.
@@ -71,13 +79,25 @@ pub struct Env<'a> {
     pub entities: HashMap<String, EntityInfo>,
     /// Source/template name -> ABI name.
     pub source_abi: HashMap<String, String>,
-    /// ABI access for event parameter types.
+    /// ABI access for event-parameter and function-return types.
     pub abis: &'a mut AbiIndex,
+}
+
+/// One lexical scope's save bookkeeping. Entities are saved at the end of the
+/// scope in which they were *declared*, so a `match`-arm entity is saved inside
+/// the arm (where it is in scope), and an outer entity mutated in an arm is
+/// saved at the outer scope's end.
+#[derive(Default)]
+struct Frame {
+    /// Entity locals declared in this frame.
+    declared: Vec<String>,
+    /// Of those, the ones that became dirty (created or mutated).
+    dirty: Vec<String>,
 }
 
 /// Per-handler mutable scope.
 struct Scope {
-    /// Local variable -> resolved type.
+    /// Local variable -> resolved type (flat; shadowing is rare and tolerated).
     locals: HashMap<String, RTy>,
     /// The handler parameter name (the event binding).
     event_param: String,
@@ -85,17 +105,44 @@ struct Scope {
     abi: String,
     /// The current event name.
     event: String,
-    /// Entity locals that must be saved, in first-seen order.
-    dirty: Vec<String>,
+    /// Stack of save frames, one per lexical block.
+    frames: Vec<Frame>,
+    /// Counter for synthetic temporaries.
+    tmp: usize,
     /// Warnings raised during lowering.
     warnings: Vec<String>,
 }
 
 impl Scope {
-    fn mark_dirty(&mut self, name: &str) {
-        if !self.dirty.iter().any(|d| d == name) {
-            self.dirty.push(name.to_string());
+    /// Declare an entity local in the current frame.
+    fn declare_entity(&mut self, name: &str, entity: String) {
+        self.locals.insert(name.to_string(), RTy::Entity(entity));
+        if let Some(f) = self.frames.last_mut() {
+            f.declared.push(name.to_string());
         }
+    }
+
+    /// Declare a non-entity local (no save tracking).
+    fn declare_local(&mut self, name: &str, ty: RTy) {
+        self.locals.insert(name.to_string(), ty);
+    }
+
+    /// Mark an entity local dirty, attributing it to its declaring frame.
+    fn mark_dirty(&mut self, name: &str) {
+        for f in self.frames.iter_mut().rev() {
+            if f.declared.iter().any(|d| d == name) {
+                if !f.dirty.iter().any(|d| d == name) {
+                    f.dirty.push(name.to_string());
+                }
+                return;
+            }
+        }
+    }
+
+    fn fresh(&mut self) -> String {
+        let n = self.tmp;
+        self.tmp += 1;
+        format!("_call{n}")
     }
 }
 
@@ -124,15 +171,11 @@ pub fn resolve_type(ty: &TypeExpr, entities: &HashMap<String, EntityInfo>) -> RT
             let name = base.simple_name().unwrap_or("");
             match name {
                 "Option" => RTy::Option(Box::new(
-                    args.first()
-                        .map_or(RTy::Unknown, |t| resolve_type(t, entities)),
+                    args.first().map_or(RTy::Unknown, |t| resolve_type(t, entities)),
                 )),
-                "Id" => args
-                    .first()
-                    .map_or(RTy::Bytes, |t| resolve_type(t, entities)),
+                "Id" => args.first().map_or(RTy::Bytes, |t| resolve_type(t, entities)),
                 "List" => RTy::List(Box::new(
-                    args.first()
-                        .map_or(RTy::Unknown, |t| resolve_type(t, entities)),
+                    args.first().map_or(RTy::Unknown, |t| resolve_type(t, entities)),
                 )),
                 _ => RTy::Unknown,
             }
@@ -165,21 +208,13 @@ pub fn lower_handler(handler: &HandlerDecl, env: &mut Env) -> (String, Vec<Strin
         event_param: handler.param.name.clone(),
         abi,
         event: handler.event.name.clone(),
-        dirty: Vec::new(),
+        frames: Vec::new(),
+        tmp: 0,
         warnings: Vec::new(),
     };
 
     let mut body = String::new();
     lower_block(&handler.body, env, &mut scope, &mut body, 1);
-
-    // Auto-save dirty-tracked entities at handler end.
-    if !scope.dirty.is_empty() {
-        body.push('\n');
-        for name in &scope.dirty {
-            body.push_str(&format!("  {name}.save()\n"));
-        }
-    }
-
     (body, scope.warnings)
 }
 
@@ -187,9 +222,19 @@ fn indent(level: usize) -> String {
     "  ".repeat(level)
 }
 
+/// Lower a block: statements followed by auto-saves for entities declared here.
 fn lower_block(block: &Block, env: &mut Env, scope: &mut Scope, out: &mut String, level: usize) {
+    scope.frames.push(Frame::default());
     for stmt in &block.stmts {
         lower_stmt(stmt, env, scope, out, level);
+    }
+    let frame = scope.frames.pop().expect("frame pushed above");
+    if !frame.dirty.is_empty() {
+        let pad = indent(level);
+        out.push('\n');
+        for name in &frame.dirty {
+            out.push_str(&format!("{pad}{name}.save()\n"));
+        }
     }
 }
 
@@ -197,32 +242,45 @@ fn lower_stmt(stmt: &Stmt, env: &mut Env, scope: &mut Scope, out: &mut String, l
     let pad = indent(level);
     match stmt {
         Stmt::Let { name, value, .. } => {
-            if let Some(kind) = entity_ctor(value) {
-                lower_entity_ctor(name, &kind, env, scope, out, level);
+            if let Some(ctor) = entity_ctor(value) {
+                lower_entity_ctor(name, &ctor, env, scope, out, level);
+            } else if matches!(value, Expr::Match { .. }) {
+                scope
+                    .warnings
+                    .push("`match` in `let` position is not supported yet".into());
+                out.push_str(&format!("{pad}// TODO: `let {name} = match …` unsupported\n"));
             } else {
                 let ty = infer(value, env, scope);
-                out.push_str(&format!("{pad}let {name} = {}\n", lower_expr(value, env, scope)));
-                scope.locals.insert(name.name.clone(), ty);
+                let rhs = lower_expr(value, env, scope);
+                out.push_str(&format!("{pad}let {name} = {rhs}\n"));
+                scope.declare_local(&name.name, ty);
             }
         }
-        Stmt::Assign { target, value, .. } => {
-            lower_assign(target, value, env, scope, out, level);
-        }
+        Stmt::Assign { target, value, .. } => lower_assign(target, value, env, scope, out, level),
         Stmt::Return { value, .. } => match value {
-            Some(v) => out.push_str(&format!("{pad}return {}\n", lower_expr(v, env, scope))),
+            Some(v) => {
+                let r = lower_expr(v, env, scope);
+                out.push_str(&format!("{pad}return {r}\n"));
+            }
             None => out.push_str(&format!("{pad}return\n")),
         },
-        Stmt::Expr(e) => out.push_str(&format!("{pad}{}\n", lower_expr(e, env, scope))),
+        Stmt::Expr(e) => {
+            if let Expr::Match { scrutinee, arms, .. } = e {
+                lower_match(scrutinee, arms, env, scope, out, level);
+            } else {
+                let s = lower_expr(e, env, scope);
+                out.push_str(&format!("{pad}{s}\n"));
+            }
+        }
     }
 }
 
-/// A recognised entity constructor call: `Entity.loadOrCreate(id, {..})`,
-/// `Entity.create(id, {..})`, or `Entity.load(id)`.
+/// A recognised entity constructor call.
 struct EntityCtor<'a> {
     entity: String,
     kind: CtorKind,
     id: &'a Expr,
-    record: Option<&'a [(redstart_parser::Ident, Expr)]>,
+    record: Option<&'a [(Ident, Expr)]>,
 }
 
 enum CtorKind {
@@ -262,7 +320,7 @@ fn entity_ctor(value: &Expr) -> Option<EntityCtor<'_>> {
 }
 
 fn lower_entity_ctor(
-    name: &redstart_parser::Ident,
+    name: &Ident,
     ctor: &EntityCtor,
     env: &mut Env,
     scope: &mut Scope,
@@ -274,9 +332,7 @@ fn lower_entity_ctor(
     let entity = &ctor.entity;
     let id = lower_expr(ctor.id, env, scope);
 
-    scope
-        .locals
-        .insert(var.clone(), RTy::Entity(entity.clone()));
+    scope.declare_entity(var, entity.clone());
 
     match ctor.kind {
         CtorKind::LoadOrCreate => {
@@ -297,7 +353,7 @@ fn lower_entity_ctor(
             scope.mark_dirty(var);
         }
         CtorKind::Load => {
-            // load() may return null; we don't auto-save unless later mutated.
+            // load() may return null; not auto-saved unless later mutated.
             out.push_str(&format!("{pad}let {var} = {entity}.load({id})\n"));
         }
     }
@@ -306,7 +362,7 @@ fn lower_entity_ctor(
 fn lower_record_init(
     var: &str,
     entity: &str,
-    fields: &[(redstart_parser::Ident, Expr)],
+    fields: &[(Ident, Expr)],
     env: &mut Env,
     scope: &mut Scope,
     out: &mut String,
@@ -334,9 +390,7 @@ fn lower_field_value(
         .and_then(|e| e.fields.get(field))
         .cloned();
     let mut rhs = lower_expr(value, env, scope);
-
     if let Some(RTy::Entity(_)) = target_ty {
-        // Assigning an entity to a reference field stores its id.
         if matches!(infer(value, env, scope), RTy::Entity(_)) {
             rhs.push_str(".id");
         }
@@ -366,12 +420,102 @@ fn lower_assign(
             }
         }
     }
-    // Fallback: plain assignment.
     out.push_str(&format!(
         "{pad}{} = {}\n",
         lower_expr(target, env, scope),
         lower_expr(value, env, scope)
     ));
+}
+
+/// Lower a `match` statement on a `Result` or `Option` scrutinee.
+fn lower_match(
+    scrutinee: &Expr,
+    arms: &[MatchArm],
+    env: &mut Env,
+    scope: &mut Scope,
+    out: &mut String,
+    level: usize,
+) {
+    let pad = indent(level);
+    let scrut_ty = infer(scrutinee, env, scope);
+
+    // Reference the scrutinee by a stable name; bind a temp if it's not a var.
+    let var = if let Expr::Path { segments, .. } = scrutinee {
+        if segments.len() == 1 {
+            segments[0].name.clone()
+        } else {
+            bind_temp(scrutinee, env, scope, out, &pad)
+        }
+    } else {
+        bind_temp(scrutinee, env, scope, out, &pad)
+    };
+
+    match scrut_ty {
+        RTy::Result(inner) => {
+            let (ok_bind, ok_body) = find_arm(arms, "Ok");
+            let (_err_bind, err_body) = find_arm(arms, "Err");
+            out.push_str(&format!("{pad}if (!{var}.reverted) {{\n"));
+            if let Some(bind) = ok_bind {
+                out.push_str(&format!("{pad}  let {bind} = {var}.value\n"));
+                scope.declare_local(&bind.name, (*inner).clone());
+            }
+            if let Some(body) = ok_body {
+                lower_block(body, env, scope, out, level + 1);
+            }
+            out.push_str(&format!("{pad}}}"));
+            if let Some(body) = err_body.filter(|b| !b.stmts.is_empty()) {
+                out.push_str(" else {\n");
+                lower_block(body, env, scope, out, level + 1);
+                out.push_str(&format!("{pad}}}"));
+            }
+            out.push('\n');
+        }
+        RTy::Option(inner) => {
+            let (some_bind, some_body) = find_arm(arms, "Some");
+            let (_none_bind, none_body) = find_arm(arms, "None");
+            out.push_str(&format!("{pad}if ({var} != null) {{\n"));
+            if let Some(bind) = some_bind {
+                out.push_str(&format!("{pad}  let {bind} = {var}!\n"));
+                scope.declare_local(&bind.name, (*inner).clone());
+            }
+            if let Some(body) = some_body {
+                lower_block(body, env, scope, out, level + 1);
+            }
+            out.push_str(&format!("{pad}}}"));
+            if let Some(body) = none_body.filter(|b| !b.stmts.is_empty()) {
+                out.push_str(" else {\n");
+                lower_block(body, env, scope, out, level + 1);
+                out.push_str(&format!("{pad}}}"));
+            }
+            out.push('\n');
+        }
+        _ => {
+            scope.warnings.push(format!(
+                "`match` on a {scrut_ty:?} scrutinee is not supported yet; emitted a comment"
+            ));
+            out.push_str(&format!("{pad}// TODO: unsupported match\n"));
+        }
+    }
+}
+
+fn bind_temp(expr: &Expr, env: &mut Env, scope: &mut Scope, out: &mut String, pad: &str) -> String {
+    let name = scope.fresh();
+    let rhs = lower_expr(expr, env, scope);
+    out.push_str(&format!("{pad}let {name} = {rhs}\n"));
+    name
+}
+
+/// Find the arm whose pattern is a constructor named `ctor`, returning its first
+/// binding (if any) and its body block.
+fn find_arm<'a>(arms: &'a [MatchArm], ctor: &str) -> (Option<&'a Ident>, Option<&'a Block>) {
+    for arm in arms {
+        if let Pattern::Ctor { name, bindings, .. } = &arm.pattern {
+            if name.name == ctor {
+                return (bindings.first(), Some(&arm.body));
+            }
+        }
+    }
+    (None, None)
 }
 
 /// Lower an expression to AssemblyScript text.
@@ -401,7 +545,7 @@ fn lower_expr(expr: &Expr, env: &mut Env, scope: &mut Scope) -> String {
         Expr::Match { .. } => {
             scope
                 .warnings
-                .push("`match` lowering is not implemented yet; emitted a placeholder".into());
+                .push("`match` used as a value is not supported yet".into());
             "/* TODO: match */".to_string()
         }
     }
@@ -431,27 +575,34 @@ fn lower_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> St
 }
 
 fn lower_call(callee: &Expr, args: &[Expr], env: &mut Env, scope: &mut Scope) -> String {
-    // Remap known method names: `.toDecimal()` -> `.toBigDecimal()`.
     if let Expr::Field { base, field, .. } = callee {
+        // Contract call: `<contract>.method(args)` -> `<contract>.try_method(args)`.
+        if let RTy::Contract(abi) = infer(base, env, scope) {
+            if env.abis.is_function(&abi, &field.name) {
+                let base_s = lower_expr(base, env, scope);
+                let arg_s = lower_args(args, env, scope);
+                return format!("{base_s}.try_{}({arg_s})", field.name);
+            }
+        }
+        // Remap known method names: `.toDecimal()` -> `.toBigDecimal()`.
         let method = match field.name.as_str() {
             "toDecimal" => "toBigDecimal",
             other => other,
         };
         let base_s = lower_expr(base, env, scope);
-        let arg_s = args
-            .iter()
-            .map(|a| lower_expr(a, env, scope))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let arg_s = lower_args(args, env, scope);
         return format!("{base_s}.{method}({arg_s})");
     }
     let callee_s = lower_expr(callee, env, scope);
-    let arg_s = args
-        .iter()
+    let arg_s = lower_args(args, env, scope);
+    format!("{callee_s}({arg_s})")
+}
+
+fn lower_args(args: &[Expr], env: &mut Env, scope: &mut Scope) -> String {
+    args.iter()
         .map(|a| lower_expr(a, env, scope))
         .collect::<Vec<_>>()
-        .join(", ");
-    format!("{callee_s}({arg_s})")
+        .join(", ")
 }
 
 fn lower_binary(op: BinOp, lhs: &Expr, rhs: &Expr, env: &mut Env, scope: &mut Scope) -> String {
@@ -460,15 +611,11 @@ fn lower_binary(op: BinOp, lhs: &Expr, rhs: &Expr, env: &mut Env, scope: &mut Sc
     let ls = lower_expr(lhs, env, scope);
     let rs = lower_expr(rhs, env, scope);
 
-    let big = lt.is_bigint() || rt.is_bigint();
-    let dec = lt.is_bigdecimal() || rt.is_bigdecimal();
-
-    if big || dec {
-        if let Some(method) = bigmath_method(op) {
-            return format!("{ls}.{method}({rs})");
-        }
+    if (lt.is_bigint() || rt.is_bigint() || lt.is_bigdecimal() || rt.is_bigdecimal())
+        && bigmath_method(op).is_some()
+    {
+        return format!("{ls}.{}({rs})", bigmath_method(op).unwrap());
     }
-
     format!("{ls} {} {rs}", binop_symbol(op))
 }
 
@@ -529,10 +676,16 @@ fn infer(expr: &Expr, env: &mut Env, scope: &mut Scope) -> RTy {
         Expr::Field { base, field, .. } => infer_field(base, &field.name, env, scope),
         Expr::Call { callee, .. } => infer_call(callee, env, scope),
         Expr::Binary { op, lhs, rhs, .. } => {
-            // Comparisons/logic are booleans; arithmetic keeps the numeric type.
             if matches!(
                 op,
-                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::And | BinOp::Or
+                BinOp::Eq
+                    | BinOp::Ne
+                    | BinOp::Lt
+                    | BinOp::Le
+                    | BinOp::Gt
+                    | BinOp::Ge
+                    | BinOp::And
+                    | BinOp::Or
             ) {
                 RTy::Boolean
             } else {
@@ -582,6 +735,11 @@ fn infer_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> RT
             "value" | "gasPrice" => RTy::BigInt,
             _ => RTy::Unknown,
         },
+        RTy::Result(inner) => match field {
+            "value" => *inner,
+            "reverted" => RTy::Boolean,
+            _ => RTy::Unknown,
+        },
         RTy::Entity(name) => env
             .entities
             .get(&name)
@@ -594,6 +752,21 @@ fn infer_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> RT
 
 fn infer_call(callee: &Expr, env: &mut Env, scope: &mut Scope) -> RTy {
     if let Expr::Field { base, field, .. } = callee {
+        // `Abi.bind(addr)` -> a bound contract instance.
+        if field.name == "bind" {
+            if let Expr::Path { segments, .. } = base.as_ref() {
+                if segments.len() == 1 && env.abis.paths.contains_key(&segments[0].name) {
+                    return RTy::Contract(segments[0].name.clone());
+                }
+            }
+        }
+        // `<contract>.method(args)` -> Result<ret, CallRevert>.
+        if let RTy::Contract(abi) = infer(base, env, scope) {
+            if let Some(outputs) = env.abis.function_outputs(&abi, &field.name) {
+                let ret = outputs.first().map_or(RTy::Unknown, |s| sol_to_rty(s));
+                return RTy::Result(Box::new(ret));
+            }
+        }
         match field.name.as_str() {
             "toDecimal" | "toBigDecimal" => return RTy::BigDecimal,
             "toBigInt" => return RTy::BigInt,

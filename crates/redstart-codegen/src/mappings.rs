@@ -75,10 +75,15 @@ fn render_imports(
     for ((source, abi), mut events) in by_module {
         events.sort_unstable();
         events.dedup();
-        let specifiers: Vec<String> = events
+        let mut specifiers: Vec<String> = events
             .iter()
             .map(|e| format!("{e} as {e}Event"))
             .collect();
+        // If a handler binds the contract for a read call, import the contract
+        // class (unaliased) from the same generated module.
+        if body.contains(&format!("{abi}.bind(")) {
+            specifiers.insert(0, abi.clone());
+        }
         out.push_str(&format!(
             "import {{ {} }} from \"../generated/{source}/{abi}\"\n",
             specifiers.join(", ")

@@ -270,4 +270,77 @@ handler on Token.Transfer(event) {
 
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
+
+    fn build_calls_demo() -> Generated {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src/abis")).unwrap();
+        fs::write(
+            dir.path().join("redstart.toml"),
+            "[project]\nname = \"erc20\"\nentry = \"src/main.red\"",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("src/abis/ERC20.json"),
+            r#"[
+              {"type":"event","name":"Approval","inputs":[
+                {"name":"owner","type":"address","indexed":true},
+                {"name":"spender","type":"address","indexed":true},
+                {"name":"value","type":"uint256","indexed":false}]},
+              {"type":"function","name":"balanceOf","stateMutability":"view",
+                "inputs":[{"name":"account","type":"address"}],
+                "outputs":[{"name":"","type":"uint256"}]}
+            ]"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("src/main.red"),
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+
+entity Account { id: Id<Bytes> balance: BigInt }
+
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+
+handler on Token.Approval(event) {
+  let result = ERC20.bind(event.address).balanceOf(event.params.owner)
+  match result {
+    Ok(bal) => {
+      let owner = Account.loadOrCreate(event.params.owner, { balance: BigInt.zero })
+      owner.balance = bal
+    }
+    Err(e) => {}
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        let tree = redstart_loader::load(dir.path()).unwrap();
+        generate(&tree)
+    }
+
+    #[test]
+    fn contract_calls_and_match_lower_correctly() {
+        let gen = build_calls_demo();
+        let m = &gen.mappings;
+
+        // Contract call -> bind + try_, returning a CallResult.
+        assert!(m.contains("let result = ERC20.bind(event.address).try_balanceOf(event.params.owner)"));
+        // match Result -> reverted check + value binding.
+        assert!(m.contains("if (!result.reverted) {"));
+        assert!(m.contains("let bal = result.value"));
+        // Entity created inside the arm is saved inside the arm (in scope).
+        assert!(m.contains("owner.save()"));
+        // Empty Err arm produces no `else`.
+        assert!(!m.contains("else {"));
+        // Contract class is imported alongside the aliased event.
+        assert!(m.contains("import { ERC20, Approval as ApprovalEvent }"));
+
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
 }
