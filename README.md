@@ -75,9 +75,10 @@ good in the lineage of Matchstick, not a venture bet.
 | `schema.graphql` + `subgraph.yaml` generation from the unified AST | `redstart-codegen` | ✅ working |
 | AssemblyScript mapping lowering — `loadOrCreate`, `BigInt`/`BigDecimal` operators, auto-save dirty-tracking, contract calls (`Result` → `try_*`), `match` | `redstart-codegen` | ✅ vertical slice (ERC-20) |
 | Semantic checker — unknown source/event/type, missing source settings, `derived` back-refs, required-field init, `.value`-without-`match`, arithmetic-on-`Option`, assign-to-`derived` | `redstart-checker` | ✅ working |
+| `redstart test` — native test interpreter (mock store + mocked calls, no WASM/Docker/Matchstick) | `redstart-test` | ✅ working |
 | `redstart fmt` — canonical, comment-preserving formatting (`--check` mode) | `redstart-cli` | ✅ working |
 | Tree-sitter grammar + highlight queries (Neovim/Helix/Zed/GitHub) | `tree-sitter-redstart` | ✅ grammar written |
-| `dev` watch loop, in-language `test` → Matchstick, LSP | `redstart-cli` | ⏳ later stages |
+| `dev` watch loop, LSP | `redstart-cli` | ⏳ later stages |
 
 The AssemblyScript lowering is the whole bet: the **kill/pivot threshold** is a
 field-level store-diff against canonical subgraph deployments. The harness for it
@@ -95,6 +96,7 @@ cargo run -p redstart-cli -- build my-subgraph
 # or against the worked example (split across two modules):
 cargo run -p redstart-cli -- check examples/erc20
 cargo run -p redstart-cli -- build examples/erc20
+cargo run -p redstart-cli -- test examples/erc20
 cargo run -p redstart-cli -- fmt --check examples/erc20
 ```
 
@@ -118,6 +120,32 @@ Rust. The example's `Token.Transfer` handler in `main.red` loads and writes the
 `Account` and `Transfer` entities declared in `accounts.red` — across modules,
 type-checked, no drift.
 
+## Testing
+
+`redstart test` runs your `test` blocks **natively** — a tree-walking interpreter
+evaluates handler ASTs against an in-memory mock store. No WASM compile, no
+downloaded Matchstick binary, no Docker, and — because tests are written in
+Redstart, not AssemblyScript — no `matchstick-as`/`graph-ts` version skew. Event
+fixtures are synthesised from a record literal; contract reads are mocked inline:
+
+```redstart
+test "a transfer debits the sender and credits the receiver" {
+  Token.Transfer({ from: 0x01, to: 0x02, value: 100 })
+  assertEq(Account.at(0x02).balance, 100)
+  assert(Account.at(0x01).balance < 0)
+}
+
+test "approval writes the balance read via a contract call" {
+  mockCall(ERC20.balanceOf(0x05), 4200)        // mock the eth_call
+  Token.Approval({ owner: 0x05, spender: 0x06, value: 1 })
+  assertEq(Account.at(0x05).balance, 4200)
+}
+```
+
+This is the fast inner loop for *handler logic*. Fidelity to the real compiled
+WASM is the job of the [conformance gate](conformance/), which store-diffs a real
+graph-node deployment against a canonical reference. Two layers, two concerns.
+
 ## Architecture
 
 A small, batteries-included, single-binary toolchain (the Gleam/Elm/Prisma
@@ -128,7 +156,8 @@ redstart-parser   lex → AST  (source of all spans & diagnostics)
 redstart-loader   redstart.toml + `mod` resolution → ModuleTree
 redstart-checker  ModuleTree → semantic analysis → Checked symbol table (RTy/ABI)
 redstart-codegen  ModuleTree + Checked → schema.graphql, subgraph.yaml, mappings.ts
-redstart-cli      the `redstart` binary: new / check / build (…dev/test/fmt/lsp)
+redstart-test     ModuleTree → native interpreter for `test` blocks (mock store)
+redstart-cli      the `redstart` binary: new / check / build / test / fmt (…dev/lsp)
 ```
 
 The resolved type system (`RTy`, ABI reading) lives in `redstart-checker` and is

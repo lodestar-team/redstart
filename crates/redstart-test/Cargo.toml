@@ -1,22 +1,21 @@
 [package]
-name = "redstart-cli"
+name = "redstart-test"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The Redstart command-line toolchain"
-
-[[bin]]
-name = "redstart"
-path = "src/main.rs"
+description = "Native test interpreter for Redstart — runs handlers against a mock store, no WASM"
 
 [dependencies]
 redstart-parser.workspace = true
 redstart-loader.workspace = true
 redstart-checker.workspace = true
-redstart-codegen.workspace = true
-redstart-test.workspace = true
-clap.workspace = true
+num-bigint = "0.4"
+num-traits = "0.2"
+bigdecimal = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

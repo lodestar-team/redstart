@@ -19,3 +19,16 @@ entity Transfer immutable {
   value: BigInt
   timestamp: BigInt
 }
+
+// Tests run natively (no WASM, no Docker): `redstart test`.
+test "a transfer debits the sender and credits the receiver" {
+  Token.Transfer({ from: 0x01, to: 0x02, value: 100 })
+  assertEq(Account.at(0x02).balance, 100)
+  assert(Account.at(0x01).balance < 0)
+}
+
+test "approval writes the on-chain balance read via a contract call" {
+  mockCall(ERC20.balanceOf(0x05), 4200)
+  Token.Approval({ owner: 0x05, spender: 0x06, value: 1 })
+  assertEq(Account.at(0x05).balance, 4200)
+}

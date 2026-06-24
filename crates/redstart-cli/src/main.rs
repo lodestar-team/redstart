@@ -38,6 +38,12 @@ enum Command {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
+    /// Run `test` blocks natively against a mock store (no WASM, no Docker).
+    Test {
+        /// Path to a project directory, `redstart.toml`, or a `.red` file.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
     /// Format `.red` files into the canonical layout.
     Fmt {
         /// A `.red` file or a directory to format recursively.
@@ -55,6 +61,7 @@ fn main() -> ExitCode {
         Command::New { name } => cmd_new(&name),
         Command::Check { path } => cmd_check(&path),
         Command::Build { path } => cmd_build(&path),
+        Command::Test { path } => cmd_test(&path),
         Command::Fmt { path, check } => cmd_fmt(&path, check),
     };
     match result {
@@ -114,6 +121,36 @@ fn load(path: &Path) -> Result<redstart_loader::ModuleTree, String> {
 /// Run semantic analysis, joining rendered diagnostics into one message.
 fn check(tree: &redstart_loader::ModuleTree) -> Result<redstart_checker::Checked, String> {
     redstart_checker::check(tree).map_err(|reports| reports.join("\n"))
+}
+
+fn cmd_test(path: &Path) -> Result<(), String> {
+    let tree = load(path)?;
+    let checked = check(&tree)?;
+    let report = redstart_test::run_tests(&tree, &checked);
+
+    if report.results.is_empty() {
+        println!("no tests found (add `test \"…\" {{ … }}` blocks)");
+        return Ok(());
+    }
+
+    for r in &report.results {
+        match &r.outcome {
+            redstart_test::Outcome::Pass => println!("  \x1b[32m✓\x1b[0m {}", r.name),
+            redstart_test::Outcome::Fail { message, location } => {
+                let at = location.as_deref().map_or(String::new(), |l| format!(" ({l})"));
+                println!("  \x1b[31m✗\x1b[0m {}{at}\n      {message}", r.name);
+            }
+        }
+    }
+
+    let total = report.results.len();
+    let passed = report.passed();
+    if report.ok() {
+        println!("\n✓ {passed}/{total} passed");
+        Ok(())
+    } else {
+        Err(format!("\n✗ {}/{total} failed", total - passed))
+    }
 }
 
 fn cmd_fmt(path: &Path, check: bool) -> Result<(), String> {
