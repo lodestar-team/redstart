@@ -1,0 +1,4 @@
+[project]
+name = "file-metadata"
+entry = "src/main.red"
+description = "ERC-721 with an IPFS file data source for token metadata."

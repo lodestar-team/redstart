@@ -58,6 +58,16 @@ template PoolTemplate {
   network: mainnet
 }
 
+entity Doc { id: Id<Bytes> body: BigInt }
+
+template DocFile {
+  kind: file
+}
+
+handler file DocFile(content) {
+  let d = Doc.create(content, { body: 7 })
+}
+
 handler call Token.transfer(call) {
   let acct = Account.loadOrCreate(call.inputs.to, { balance: BigInt.zero })
   acct.balance = acct.balance + call.inputs.amount
@@ -253,6 +263,19 @@ fn template_create_is_recorded() {
 test "call handler spawns a pool data source" {
   Token.transfer({ to: 0x09, amount: 1 })
   assertCreated(PoolTemplate, 0x09)
+}
+"#,
+    );
+    assert!(out[0].1, "expected pass, got: {}", out[0].2);
+}
+
+#[test]
+fn file_handler_writes_entity() {
+    let out = outcomes(
+        r#"
+test "file handler indexes content" {
+  DocFile.file(0xAB)
+  assertEq(Doc.at(0xAB).body, 7)
 }
 "#,
     );

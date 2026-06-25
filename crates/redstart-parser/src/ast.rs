@@ -161,6 +161,8 @@ pub enum HandlerKind {
     Call,
     /// `handler block Source(block) [every N | once]` — a block handler.
     Block(BlockFilter),
+    /// `handler file Template(content)` — a file/IPFS data-source handler.
+    File,
 }
 
 /// The block-handler trigger filter.
@@ -184,7 +186,14 @@ impl HandlerDecl {
             // The param binding (conventionally `block`) keeps sibling block
             // handlers on one source uniquely named — `handleTokenBlock`.
             HandlerKind::Block(_) => format!("handle{}{}", self.source.name, capitalize(&self.param.name)),
+            HandlerKind::File => format!("handle{}", capitalize(&self.source.name)),
         }
+    }
+
+    /// Whether this is a file/IPFS data-source handler.
+    #[must_use]
+    pub fn is_file(&self) -> bool {
+        matches!(self.kind, HandlerKind::File)
     }
 }
 

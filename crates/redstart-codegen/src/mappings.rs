@@ -26,6 +26,7 @@ fn param_type(handler: &HandlerDecl) -> String {
         HandlerKind::Event => format!("{}Event", handler.event.name),
         HandlerKind::Call => call_class(handler),
         HandlerKind::Block(_) => "ethereum.Block".to_string(),
+        HandlerKind::File => "Bytes".to_string(),
     }
 }
 
@@ -93,7 +94,7 @@ fn render_imports(
         match handler.kind {
             HandlerKind::Event => entry.push(format!("{e} as {e}Event", e = handler.event.name)),
             HandlerKind::Call => entry.push(call_class(handler)),
-            HandlerKind::Block(_) => {}
+            HandlerKind::Block(_) | HandlerKind::File => {}
         }
     }
     for ((source, abi), mut specifiers) in by_module {

@@ -98,6 +98,8 @@ struct Interp<'t> {
     handlers: HashMap<(String, String), &'t HandlerDecl>,
     /// source -> its block handlers.
     block_handlers: HashMap<String, Vec<&'t HandlerDecl>>,
+    /// file-template name -> its file handler.
+    file_handlers: HashMap<String, &'t HandlerDecl>,
     /// source/template name -> address bytes.
     source_addr: HashMap<String, Vec<u8>>,
     /// known ABI names (for `Abi.bind`).
@@ -153,6 +155,7 @@ impl<'t> Interp<'t> {
     fn build(tree: &'t ModuleTree) -> Self {
         let mut handlers = HashMap::new();
         let mut block_handlers: HashMap<String, Vec<&HandlerDecl>> = HashMap::new();
+        let mut file_handlers: HashMap<String, &HandlerDecl> = HashMap::new();
         let mut source_addr = HashMap::new();
         let mut abis = Vec::new();
         let mut templates = std::collections::HashSet::new();
@@ -169,6 +172,9 @@ impl<'t> Interp<'t> {
                     HandlerKind::Block(_) => {
                         block_handlers.entry(h.source.name.clone()).or_default().push(h);
                     }
+                    HandlerKind::File => {
+                        file_handlers.insert(h.source.name.clone(), h);
+                    }
                     HandlerKind::Event | HandlerKind::Call => {
                         handlers.insert((h.source.name.clone(), h.event.name.clone()), h);
                     }
@@ -183,6 +189,7 @@ impl<'t> Interp<'t> {
         Self {
             handlers,
             block_handlers,
+            file_handlers,
             source_addr,
             abis,
             templates,
@@ -353,6 +360,10 @@ impl<'t> Interp<'t> {
                     // `Source.block({ … })` fires that source's block handlers.
                     if field.name == "block" && self.block_handlers.contains_key(&src) {
                         return self.fire_block(&src, args, world, frame, span);
+                    }
+                    // `Template.file(bytes)` fires a file/IPFS data-source handler.
+                    if field.name == "file" && self.file_handlers.contains_key(&src) {
+                        return self.fire_file(&src, args, world, frame, span);
                     }
                     if let Some(h) = self.handlers.get(&(src.clone(), field.name.clone())).copied() {
                         return match h.kind {
@@ -580,6 +591,27 @@ impl<'t> Interp<'t> {
             self.exec_block(&handler.body, world, &mut hframe)?;
             flush(&hframe, world);
         }
+        Ok(())
+    }
+
+    /// Fire a file/IPFS handler with the file contents as its `Bytes` param.
+    fn fire_file(&self, template: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
+        let handler = self
+            .file_handlers
+            .get(template)
+            .copied()
+            .ok_or_else(|| TError { message: format!("no file handler for `{template}`"), span: Some(span.clone()) })?;
+        let content = match args.first() {
+            Some(e) => self.eval(e, world, frame)?,
+            None => Value::Bytes(Vec::new()),
+        };
+        let mut hframe = Frame {
+            locals: HashMap::from([(handler.param.name.clone(), content)]),
+            working: Vec::new(),
+            returned: false,
+        };
+        self.exec_block(&handler.body, world, &mut hframe)?;
+        flush(&hframe, world);
         Ok(())
     }
 

@@ -90,6 +90,11 @@ fn render_template(
     abi_index: &mut AbiIndex,
     warnings: &mut Vec<String>,
 ) {
+    if is_file_template(template) {
+        render_file_template(out, template, input, warnings);
+        return;
+    }
+
     let abi = setting_str(&template.settings, "abi").unwrap_or_else(|| "Contract".to_string());
     let network =
         setting_str(&template.settings, "network").unwrap_or_else(|| "mainnet".to_string());
@@ -103,6 +108,56 @@ fn render_template(
     out.push_str(&format!("      abi: {abi}\n"));
 
     render_mapping(out, &template.name.name, &abi, input, abi_index, warnings);
+}
+
+/// Whether a template declares `kind: file` (a file/IPFS data source).
+fn is_file_template(template: &TemplateDecl) -> bool {
+    matches!(
+        setting_str(&template.settings, "kind").as_deref(),
+        Some("file" | "file/ipfs" | "ipfs")
+    )
+}
+
+/// Render a `kind: file/ipfs` template — no network/address, a single `handler:`.
+fn render_file_template(
+    out: &mut String,
+    template: &TemplateDecl,
+    input: &ManifestInput,
+    warnings: &mut Vec<String>,
+) {
+    out.push_str(&format!(
+        "  - kind: file/ipfs\n    name: {}\n",
+        template.name.name
+    ));
+    out.push_str("    mapping:\n      kind: file/ipfs\n");
+    out.push_str(&format!("      apiVersion: {API_VERSION}\n"));
+    out.push_str("      language: wasm/assemblyscript\n");
+
+    out.push_str("      entities:\n");
+    for name in input.entity_names {
+        out.push_str(&format!("        - {name}\n"));
+    }
+    out.push_str("      abis: []\n");
+
+    let file_handlers: Vec<&&HandlerDecl> = input
+        .handlers
+        .iter()
+        .filter(|h| h.is_file() && h.source.name == template.name.name)
+        .collect();
+    match file_handlers.as_slice() {
+        [handler] => out.push_str(&format!("      handler: {}\n", handler.fn_name())),
+        [] => warnings.push(format!(
+            "file template `{}` has no `handler file {0}(content) {{ … }}`",
+            template.name.name
+        )),
+        many => warnings.push(format!(
+            "file template `{}` has {} file handlers; file/ipfs allows exactly one",
+            template.name.name,
+            many.len()
+        )),
+    }
+
+    out.push_str("      file: ./src/mappings.ts\n");
 }
 
 fn render_mapping(

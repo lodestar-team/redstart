@@ -449,6 +449,20 @@ impl<'t> Parser<'t> {
                     span: self.span_from(start),
                 })
             }
+            Some(Token::Ident) if self.peek_text_is("file") => {
+                self.bump();
+                let source = self.expect_ident("for the file template name")?;
+                let param = self.parse_handler_param()?;
+                let body = self.parse_block()?;
+                Ok(HandlerDecl {
+                    kind: HandlerKind::File,
+                    event: source.clone(),
+                    source,
+                    param,
+                    body,
+                    span: self.span_from(start),
+                })
+            }
             Some(Token::Ident) if self.peek_text_is("block") => {
                 self.bump();
                 let source = self.expect_ident("for the source name")?;
@@ -1280,6 +1294,15 @@ handler block Token(b3) { }
         assert_eq!(p.handlers[2].kind, HandlerKind::Block(BlockFilter::Polling(50)));
         assert_eq!(p.handlers[3].kind, HandlerKind::Block(BlockFilter::Once));
         assert_eq!(p.handlers[4].kind, HandlerKind::Block(BlockFilter::Every));
+    }
+
+    #[test]
+    fn parses_file_handler() {
+        let p = parse_ok("handler file TokenMetadata(content) { let v = json.fromBytes(content) }");
+        assert_eq!(p.handlers.len(), 1);
+        assert_eq!(p.handlers[0].kind, HandlerKind::File);
+        assert_eq!(p.handlers[0].source.name, "TokenMetadata");
+        assert_eq!(p.handlers[0].param.name, "content");
     }
 
     #[test]

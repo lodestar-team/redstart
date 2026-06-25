@@ -62,7 +62,8 @@ Features graphite supported that Redstart's grammar/codegen doesn't yet:
   `handler call Src.fn(call)`, with ABI-typed `call.inputs.*` / `call.outputs.*`.
 - ~~**Block handlers** (`blockHandlers` with polling filters).~~ ✅ done —
   `handler block Src(block) [every N | once]`.
-- **File data sources** (IPFS/Arweave).
+- ~~**File data sources** (IPFS/Arweave).~~ ✅ done (IPFS) —
+  `template T { kind: file }` + `handler file T(content)`; see `examples/file-metadata`.
 - **Transaction receipt context** (`receipt: true`).
 - **`redstart deploy`** — wrap `graph deploy` to Studio (graphite had `deploy`).
 - **Richer fixtures** — graphite ships ERC-721, ERC-1155, Uniswap V2, and

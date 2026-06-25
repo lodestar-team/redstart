@@ -420,4 +420,41 @@ handler on Token.Transfer(event) {
         assert!(m.contains("crypto.keccak256(event.params.from)"));
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
+
+    #[test]
+    fn file_data_source_manifest_and_handler() {
+        let gen = build(
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Token { id: Id<Bytes> uri: String }
+source Src {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+template Meta {
+  kind: file
+}
+handler on Src.Transfer(event) {
+  Meta.create("QmCid")
+}
+handler file Meta(content) {
+  let v = json.fromBytes(content)
+  let cid = dataSource.stringParam()
+  let t = Token.create(Bytes.fromUTF8(cid), { uri: cid })
+}
+"#,
+            TRANSFER_ABI,
+        );
+        // file/ipfs template with a single `handler:` and no network/address.
+        assert!(gen.manifest.contains("kind: file/ipfs"), "manifest:\n{}", gen.manifest);
+        assert!(gen.manifest.contains("name: Meta"));
+        assert!(gen.manifest.contains("handler: handleMeta"));
+        let m = &gen.mappings;
+        assert!(m.contains("export function handleMeta(content: Bytes): void"), "got:\n{m}");
+        assert!(m.contains("json.fromBytes(content)"));
+        assert!(m.contains("dataSource.stringParam()"));
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
 }

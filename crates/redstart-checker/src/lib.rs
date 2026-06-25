@@ -283,6 +283,10 @@ fn check_source(s: &SourceDecl, abis: &AbiIndex, file: &str, diags: &mut Vec<Dia
 }
 
 fn check_template(t: &TemplateDecl, abis: &AbiIndex, file: &str, diags: &mut Vec<Diag>) {
+    // A `kind: file` (file/IPFS) template has no contract — no `abi`/`network`.
+    if is_file_template(t) {
+        return;
+    }
     for key in ["abi", "network"] {
         if get_setting(&t.settings, key).is_none() {
             diags.push(Diag::new(
@@ -295,6 +299,14 @@ fn check_template(t: &TemplateDecl, abis: &AbiIndex, file: &str, diags: &mut Vec
         }
     }
     check_abi_ref(&t.settings, abis, file, diags);
+}
+
+/// Whether a template declares `kind: file` (a file/IPFS data source).
+fn is_file_template(t: &TemplateDecl) -> bool {
+    matches!(
+        get_setting(&t.settings, "kind").and_then(|s| path_name(&s.value)).as_deref(),
+        Some("file" | "ipfs")
+    )
 }
 
 fn check_abi_ref(settings: &[Setting], abis: &AbiIndex, file: &str, diags: &mut Vec<Diag>) {
@@ -357,6 +369,8 @@ fn check_handler(
             )
         }
         HandlerKind::Block(_) => (RTy::Block, HashMap::new(), HashMap::new()),
+        // A file/IPFS handler receives the file contents as `Bytes`.
+        HandlerKind::File => (RTy::Bytes, HashMap::new(), HashMap::new()),
     };
 
     let ctx = BodyCtx {

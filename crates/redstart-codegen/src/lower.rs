@@ -121,6 +121,7 @@ pub fn lower_handler(handler: &HandlerDecl, env: &mut Env) -> (String, Vec<Strin
         HandlerKind::Event => RTy::Event,
         HandlerKind::Call => RTy::Call,
         HandlerKind::Block(_) => RTy::Block,
+        HandlerKind::File => RTy::Bytes,
     };
 
     let mut scope = Scope {
