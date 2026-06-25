@@ -352,4 +352,34 @@ handler on Token.Transfer(event) {
         assert!(m.contains("import { PairTemplate } from \"../generated/templates\""), "got:\n{m}");
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
+
+    #[test]
+    fn graph_ts_namespaces_and_statics() {
+        let gen = build(
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Account { id: Id<Bytes> balance: BigInt score: BigInt }
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+handler on Token.Transfer(event) {
+  log.info("v {}", [event.params.value.toString()])
+  let acct = Account.loadOrCreate(event.params.to, { balance: BigInt.zero, score: BigInt.fromI32(0) })
+  let h = crypto.keccak256(event.params.from)
+  acct.score = BigInt.fromI32(10).pow(2) + acct.score
+}
+"#,
+            TRANSFER_ABI,
+        );
+        let m = &gen.mappings;
+        // Whole-word import detection: log/crypto imported, logIndex is not a false positive.
+        assert!(m.contains("import { BigInt, crypto, log } from \"@graphprotocol/graph-ts\""), "got:\n{m}");
+        // A BigInt static chained through `.pow()` is still BigInt, so `+` lowers to `.plus()`.
+        assert!(m.contains("BigInt.fromI32(10).pow(2).plus(acct.score)"), "got:\n{m}");
+        assert!(m.contains("crypto.keccak256(event.params.from)"));
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
 }

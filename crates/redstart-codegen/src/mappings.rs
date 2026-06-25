@@ -66,20 +66,9 @@ fn render_imports(
 ) -> String {
     let mut out = String::new();
 
-    // graph-ts imports, only those actually referenced. `ethereum` is needed
-    // when a block handler takes an `ethereum.Block` parameter.
-    let needs_ethereum = handlers
-        .iter()
-        .any(|h| matches!(h.kind, HandlerKind::Block(_)))
-        || body.contains("ethereum.");
-    let mut gts: Vec<&str> = ["BigInt", "BigDecimal", "Bytes", "Address", "DataSourceContext"]
-        .into_iter()
-        .filter(|ty| body.contains(ty))
-        .collect();
-    if needs_ethereum {
-        gts.push("ethereum");
-    }
-    gts.sort_unstable();
+    // graph-ts imports: every top-level type/namespace actually referenced as a
+    // whole word (so `log.info` imports `log` but `event.logIndex` does not).
+    let gts = graph_ts_specifiers(body);
     if !gts.is_empty() {
         out.push_str(&format!(
             "import {{ {} }} from \"@graphprotocol/graph-ts\"\n",
@@ -155,4 +144,72 @@ fn render_imports(
     }
 
     out
+}
+
+/// The full set of top-level `@graphprotocol/graph-ts` exports Redstart may emit
+/// — types and namespaces. Anything referenced as a whole word gets imported.
+const GRAPH_TS_EXPORTS: &[&str] = &[
+    // types
+    "Address", "BigDecimal", "BigInt", "ByteArray", "Bytes", "DataSourceContext",
+    "Entity", "TypedMap", "Value", "Wrapped",
+    // namespaces
+    "crypto", "dataSource", "ens", "ethereum", "ipfs", "json", "log", "store",
+    "typeConversion",
+];
+
+/// Collect, sorted, the graph-ts identifiers referenced (as whole words) in the
+/// lowered mapping body.
+fn graph_ts_specifiers(body: &str) -> Vec<&'static str> {
+    let mut found: Vec<&'static str> = GRAPH_TS_EXPORTS
+        .iter()
+        .copied()
+        .filter(|w| references_word(body, w))
+        .collect();
+    found.sort_unstable();
+    found
+}
+
+/// Whether `word` appears in `body` as a whole identifier — not preceded or
+/// followed by an identifier character. So `log` matches in `log.info(...)` but
+/// not in `event.logIndex`, and `Bytes` does not match inside `ByteArray`.
+fn references_word(body: &str, word: &str) -> bool {
+    let bytes = body.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = body[from..].find(word) {
+        let start = from + rel;
+        let end = start + word.len();
+        let before_ok = start == 0 || !is_ident_byte(bytes[start - 1]);
+        let after_ok = bytes.get(end).is_none_or(|b| !is_ident_byte(*b));
+        if before_ok && after_ok {
+            return true;
+        }
+        from = start + 1;
+    }
+    false
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{graph_ts_specifiers, references_word};
+
+    #[test]
+    fn whole_word_matching_avoids_false_positives() {
+        assert!(references_word("log.info(x)", "log"));
+        assert!(!references_word("event.logIndex.toI32()", "log"));
+        assert!(references_word("ByteArray.fromI32(1)", "ByteArray"));
+        // `Bytes` must not match inside `ByteArray`.
+        assert!(!references_word("ByteArray.fromI32(1)", "Bytes"));
+        assert!(references_word("crypto.keccak256(b)", "crypto"));
+        assert!(!references_word("mycrypto.x", "crypto"));
+    }
+
+    #[test]
+    fn gathers_referenced_namespaces_sorted() {
+        let body = "log.info(x); let h = crypto.keccak256(b); BigInt.fromI32(1)";
+        assert_eq!(graph_ts_specifiers(body), vec!["BigInt", "crypto", "log"]);
+    }
 }

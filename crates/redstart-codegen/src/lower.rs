@@ -835,12 +835,41 @@ fn infer_call(callee: &Expr, env: &mut Env, scope: &mut Scope) -> RTy {
                 return RTy::Result(Box::new(ret));
             }
         }
+        // graph-ts static constructors: `BigInt.fromI32(x)`, `Address.zero()`, …
+        if let Expr::Path { segments, .. } = base.as_ref() {
+            if segments.len() == 1 {
+                if let Some(ty) = static_ctor_type(&segments[0].name, &field.name) {
+                    return ty;
+                }
+            }
+        }
+        // graph-ts instance methods whose return type we know.
         match field.name.as_str() {
-            "toDecimal" | "toBigDecimal" => return RTy::BigDecimal,
+            "toDecimal" | "toBigDecimal" | "divDecimal" => return RTy::BigDecimal,
             "toBigInt" => return RTy::BigInt,
-            "abs" | "plus" | "minus" | "times" | "div" => return infer(base, env, scope),
+            "toHex" | "toHexString" | "toString" | "toBase58" => return RTy::String,
+            "toI32" | "toU32" => return RTy::Int,
+            // Numeric ops preserve the receiver's type.
+            "abs" | "neg" | "plus" | "minus" | "times" | "div" | "mod" | "pow" | "sqrt"
+            | "bitAnd" | "bitOr" | "leftShift" | "rightShift" => return infer(base, env, scope),
+            "concat" | "concatI32" => return RTy::Bytes,
             _ => {}
         }
     }
     RTy::Unknown
+}
+
+/// The return type of a known graph-ts static constructor `Type.method(...)`.
+fn static_ctor_type(ty: &str, method: &str) -> Option<RTy> {
+    Some(match (ty, method) {
+        ("BigInt", m) if m.starts_with("from") || m == "zero" => RTy::BigInt,
+        ("BigDecimal", m) if m.starts_with("from") || m == "zero" => RTy::BigDecimal,
+        ("ByteArray", _) => RTy::Bytes,
+        ("Bytes", _) => RTy::Bytes,
+        ("Address", _) => RTy::Address,
+        ("crypto", "keccak256") => RTy::Bytes,
+        ("dataSource", "address") => RTy::Address,
+        ("dataSource", "network") => RTy::String,
+        _ => return None,
+    })
 }
