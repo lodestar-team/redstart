@@ -155,6 +155,17 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
             check_entity(e, &entity_names, &aux_types, &entity_meta, file, &mut diags);
             check_implements(e, &interfaces, file, &mut diags);
         }
+        for agg in &m.program.aggregations {
+            if !entity_names.iter().any(|n| n == &agg.source.name) {
+                diags.push(
+                    Diag::new(file, &agg.source.span, "E005", format!("aggregation `{}` sources unknown entity `{}`", agg.name.name, agg.source.name), "no such entity")
+                        .with_help("`over <Entity>` must name a `timeseries` entity"),
+                );
+            }
+            for f in &agg.fields {
+                validate_type(&f.ty, &entity_names, &aux_types, file, &mut diags);
+            }
+        }
         for s in &m.program.sources {
             check_source(s, &abis, file, &mut diags);
         }

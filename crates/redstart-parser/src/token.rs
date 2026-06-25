@@ -29,6 +29,8 @@ pub enum Token {
     KwEnum,
     #[token("interface")]
     KwInterface,
+    #[token("aggregation")]
+    KwAggregation,
     #[token("source")]
     KwSource,
     #[token("template")]
@@ -165,6 +167,7 @@ impl Token {
             KwEntity => "`entity`",
             KwEnum => "`enum`",
             KwInterface => "`interface`",
+            KwAggregation => "`aggregation`",
             KwSource => "`source`",
             KwTemplate => "`template`",
             KwHandler => "`handler`",

@@ -19,7 +19,7 @@ use manifest::ManifestInput;
 use redstart_checker::Checked;
 use redstart_loader::ModuleTree;
 use redstart_parser::ast::{
-    EntityDecl, EnumDecl, HandlerDecl, InterfaceDecl, SourceDecl, TemplateDecl,
+    AggregationDecl, EntityDecl, EnumDecl, HandlerDecl, InterfaceDecl, SourceDecl, TemplateDecl,
 };
 use std::path::PathBuf;
 
@@ -68,6 +68,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
     let mut entities: Vec<&EntityDecl> = Vec::new();
     let mut enums: Vec<&EnumDecl> = Vec::new();
     let mut interfaces: Vec<&InterfaceDecl> = Vec::new();
+    let mut aggregations: Vec<&AggregationDecl> = Vec::new();
     let mut sources: Vec<&SourceDecl> = Vec::new();
     let mut templates: Vec<&TemplateDecl> = Vec::new();
     let mut handlers: Vec<&HandlerDecl> = Vec::new();
@@ -76,6 +77,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
         entities.extend(module.program.entities.iter());
         enums.extend(module.program.enums.iter());
         interfaces.extend(module.program.interfaces.iter());
+        aggregations.extend(module.program.aggregations.iter());
         sources.extend(module.program.sources.iter());
         templates.extend(module.program.templates.iter());
         handlers.extend(module.program.handlers.iter());
@@ -84,9 +86,13 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
     let entity_names: Vec<String> = entities.iter().map(|e| e.name.name.clone()).collect();
 
     // ---- schema ----
-    let schema = schema::render(&entities, &enums, &interfaces);
+    let schema = schema::render(&entities, &enums, &interfaces, &aggregations);
 
     // ---- manifest ----
+    let uses_aggregations = !aggregations.is_empty()
+        || entities
+            .iter()
+            .any(|e| e.modifiers.iter().any(|m| m.name == "timeseries"));
     let input = ManifestInput {
         name: &tree.name,
         description: tree.description.as_deref(),
@@ -94,6 +100,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
         templates: &templates,
         handlers: &handlers,
         entity_names: &entity_names,
+        uses_aggregations,
     };
     let (manifest_src, mut warnings) = manifest::render(&input, &mut checked.abis);
 

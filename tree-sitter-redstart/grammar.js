@@ -33,6 +33,7 @@ module.exports = grammar({
       $.entity_declaration,
       $.enum_declaration,
       $.interface_declaration,
+      $.aggregation_declaration,
       $.source_declaration,
       $.template_declaration,
       $.handler_declaration,
@@ -62,6 +63,22 @@ module.exports = grammar({
       'interface',
       field('name', $.identifier),
       '{', repeat($.field_declaration), '}',
+    ),
+
+    aggregation_declaration: $ => seq(
+      'aggregation',
+      field('name', $.identifier),
+      'over', field('source', $.identifier),
+      'every', '[', sepTrailing(field('interval', $.identifier), ','), ']',
+      '{', repeat($.aggregate_field), '}',
+    ),
+
+    aggregate_field: $ => seq(
+      field('name', $.identifier),
+      ':', field('type', $._type),
+      '=', field('func', $.identifier),
+      '(', optional(field('arg', $.identifier)), ')',
+      optional(','),
     ),
 
     enum_declaration: $ => seq(

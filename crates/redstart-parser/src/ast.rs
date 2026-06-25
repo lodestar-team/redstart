@@ -22,6 +22,8 @@ pub struct Program {
     pub enums: Vec<EnumDecl>,
     /// `interface Name { ... }` declarations.
     pub interfaces: Vec<InterfaceDecl>,
+    /// `aggregation Name over Source every [..] { ... }` declarations.
+    pub aggregations: Vec<AggregationDecl>,
     /// `source Name { ... }` data sources.
     pub sources: Vec<SourceDecl>,
     /// `template Name { ... }` dynamic data sources.
@@ -88,6 +90,36 @@ pub struct InterfaceDecl {
     /// The declared fields.
     pub fields: Vec<FieldDecl>,
     /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// `aggregation Name over Source every [hour, day] { field = fn(arg), … }`.
+#[derive(Debug, Clone)]
+pub struct AggregationDecl {
+    /// The aggregation type name.
+    pub name: Ident,
+    /// The source timeseries entity.
+    pub source: Ident,
+    /// Intervals: `hour`, `day`.
+    pub intervals: Vec<Ident>,
+    /// The aggregated fields.
+    pub fields: Vec<AggregateField>,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// One `name: Type = fn(arg)` field inside an [`AggregationDecl`].
+#[derive(Debug, Clone)]
+pub struct AggregateField {
+    /// The field name.
+    pub name: Ident,
+    /// The field type.
+    pub ty: TypeExpr,
+    /// The aggregation function (`sum`, `count`, `min`, `max`, `first`, `last`).
+    pub func: Ident,
+    /// The source attribute the function reduces over (absent for `count()`).
+    pub arg: Option<Ident>,
+    /// Span of the whole field.
     pub span: Span,
 }
 

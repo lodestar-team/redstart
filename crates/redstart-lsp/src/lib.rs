@@ -468,7 +468,7 @@ fn word_at(text: &str, offset: usize) -> Option<String> {
 }
 
 const KEYWORDS: &[&str] = &[
-    "abi", "from", "entity", "enum", "interface", "implements", "source", "template", "handler", "on", "derived",
+    "abi", "from", "entity", "enum", "interface", "implements", "aggregation", "over", "source", "template", "handler", "on", "derived",
     "match", "let", "return", "if", "else", "while", "for", "in", "fn", "mod",
     "use", "test", "true", "false",
 ];

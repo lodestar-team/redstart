@@ -211,6 +211,7 @@ impl<'t> Parser<'t> {
             Some(Token::KwEntity) => program.entities.push(self.parse_entity()?),
             Some(Token::KwEnum) => program.enums.push(self.parse_enum()?),
             Some(Token::KwInterface) => program.interfaces.push(self.parse_interface()?),
+            Some(Token::KwAggregation) => program.aggregations.push(self.parse_aggregation()?),
             Some(Token::KwSource) => program.sources.push(self.parse_source()?),
             Some(Token::KwTemplate) => program.templates.push(self.parse_template()?),
             Some(Token::KwHandler) => program.handlers.push(self.parse_handler()?),
@@ -240,6 +241,7 @@ impl<'t> Parser<'t> {
                     | Token::KwEntity
                     | Token::KwEnum
                     | Token::KwInterface
+                    | Token::KwAggregation
                     | Token::KwSource
                     | Token::KwTemplate
                     | Token::KwHandler
@@ -354,6 +356,78 @@ impl<'t> Parser<'t> {
             fields,
             span: self.span_from(start),
         })
+    }
+
+    fn parse_aggregation(&mut self) -> PResult<AggregationDecl> {
+        let start = self.cur_start();
+        self.expect(Token::KwAggregation, "to begin an aggregation")?;
+        let name = self.expect_ident("for the aggregation name")?;
+        self.expect_contextual("over", "after the aggregation name")
+            .map_err(|e| e.with_help("aggregations look like `aggregation Stats over Data every [hour, day] { … }`"))?;
+        let source = self.expect_ident("for the source timeseries entity")?;
+        self.expect_contextual("every", "before the interval list")?;
+        self.expect(Token::LBracket, "to open the interval list")?;
+        let mut intervals = Vec::new();
+        while !self.check(Token::RBracket) && !self.at_end() {
+            intervals.push(self.expect_ident("for an interval")?);
+            self.eat_comma();
+        }
+        self.expect(Token::RBracket, "to close the interval list")?;
+
+        self.expect(Token::LBrace, "to open the aggregation body")?;
+        let mut fields = Vec::new();
+        while !self.check(Token::RBrace) && !self.at_end() {
+            fields.push(self.parse_aggregate_field()?);
+            self.eat_comma();
+        }
+        self.expect(Token::RBrace, "to close the aggregation body")?;
+        Ok(AggregationDecl {
+            name,
+            source,
+            intervals,
+            fields,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_aggregate_field(&mut self) -> PResult<AggregateField> {
+        let start = self.cur_start();
+        let name = self.expect_ident_like("for the field name")?;
+        self.expect(Token::Colon, "after the field name")?;
+        let ty = self.parse_type()?;
+        self.expect(Token::Eq, "before the aggregation function")
+            .map_err(|e| e.with_help("aggregated fields look like `total: BigDecimal = sum(price)`"))?;
+        let func = self.expect_ident("for the aggregation function")?;
+        self.expect(Token::LParen, "before the aggregation argument")?;
+        let arg = if self.check(Token::RParen) {
+            None
+        } else {
+            Some(self.expect_ident_like("for the aggregation argument")?)
+        };
+        self.expect(Token::RParen, "after the aggregation argument")?;
+        Ok(AggregateField {
+            name,
+            ty,
+            func,
+            arg,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Consume an identifier that must equal `word` (a contextual keyword).
+    fn expect_contextual(&mut self, word: &str, context: &str) -> PResult<()> {
+        if self.peek_text_is(word) {
+            self.bump();
+            Ok(())
+        } else {
+            let found = self
+                .peek_kind()
+                .map_or_else(|| "end of input".to_string(), |k| k.describe().to_string());
+            Err(self.err(
+                format!("expected `{word}` {context}, found {found}"),
+                format!("expected `{word}`"),
+            ))
+        }
     }
 
     fn parse_enum(&mut self) -> PResult<EnumDecl> {
@@ -1092,6 +1166,7 @@ fn is_keyword(kind: Token) -> bool {
             | Token::KwEntity
             | Token::KwEnum
             | Token::KwInterface
+            | Token::KwAggregation
             | Token::KwSource
             | Token::KwTemplate
             | Token::KwHandler
@@ -1299,6 +1374,23 @@ handler on C.Transfer(event) {
         };
         assert_eq!(*op, BinOp::Add);
         assert!(matches!(rhs.as_ref(), Expr::Binary { op: BinOp::Mul, .. }));
+    }
+
+    #[test]
+    fn parses_aggregation() {
+        let p = parse_ok(
+            "aggregation Stats over Data every [hour, day] { total: BigDecimal = sum(price) n: Int8 = count() }",
+        );
+        assert_eq!(p.aggregations.len(), 1);
+        let a = &p.aggregations[0];
+        assert_eq!(a.name.name, "Stats");
+        assert_eq!(a.source.name, "Data");
+        assert_eq!(a.intervals.len(), 2);
+        assert_eq!(a.fields.len(), 2);
+        assert_eq!(a.fields[0].func.name, "sum");
+        assert_eq!(a.fields[0].arg.as_ref().unwrap().name, "price");
+        assert_eq!(a.fields[1].func.name, "count");
+        assert!(a.fields[1].arg.is_none());
     }
 
     #[test]

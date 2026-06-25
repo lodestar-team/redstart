@@ -3,7 +3,8 @@
 ; Keywords
 [
   "mod" "use" "abi" "from" "entity" "enum" "interface" "implements" "source" "template"
-  "handler" "on" "call" "block" "file" "every" "once" "fn" "test" "derived" "pub"
+  "aggregation" "over" "handler" "on" "call" "block" "file" "every" "once" "fn" "test"
+  "derived" "pub"
 ] @keyword
 
 "let" @keyword
@@ -21,6 +22,8 @@
 (enum_declaration variant: (identifier) @constant)
 (interface_declaration name: (identifier) @type)
 (entity_declaration interface: (identifier) @type)
+(aggregation_declaration name: (identifier) @type)
+(aggregate_field func: (identifier) @function)
 (source_declaration name: (identifier) @type)
 (template_declaration name: (identifier) @type)
 (function_declaration name: (identifier) @function)
