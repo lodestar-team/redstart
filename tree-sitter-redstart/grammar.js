@@ -114,8 +114,29 @@ module.exports = grammar({
       $.let_statement,
       $.assignment_statement,
       $.return_statement,
+      $.if_statement,
+      $.while_statement,
+      $.for_statement,
       $.expression_statement,
     ),
+
+    if_statement: $ => seq(
+      'if', field('condition', $._expression), field('consequence', $.block),
+      repeat(seq('else', 'if', field('condition', $._expression), field('consequence', $.block))),
+      optional(seq('else', field('alternative', $.block))),
+    ),
+
+    while_statement: $ => seq(
+      'while', field('condition', $._expression), field('body', $.block),
+    ),
+
+    for_statement: $ => seq(
+      'for', field('variable', $.identifier), 'in',
+      field('iterable', choice($._expression, $.range)),
+      field('body', $.block),
+    ),
+
+    range: $ => prec.left(seq(field('start', $._expression), '..', field('end', $._expression))),
 
     let_statement: $ => seq(
       'let', field('name', $.identifier),
@@ -143,6 +164,8 @@ module.exports = grammar({
       $.path,
       $.field_expression,
       $.call_expression,
+      $.index_expression,
+      $.array,
       $.record,
       $.unary_expression,
       $.binary_expression,
@@ -160,6 +183,12 @@ module.exports = grammar({
       field('function', $._expression),
       '(', sepTrailing($._expression, ','), ')',
     )),
+
+    index_expression: $ => prec(PREC.call, seq(
+      field('base', $._expression), '[', field('index', $._expression), ']',
+    )),
+
+    array: $ => seq('[', sepTrailing($._expression, ','), ']'),
 
     record: $ => seq('{', sepTrailing($.record_field, ','), '}'),
 

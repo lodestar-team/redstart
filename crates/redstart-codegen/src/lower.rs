@@ -21,7 +21,9 @@
 //! reference an entity declared in another — multi-file is first-class here.
 
 use redstart_checker::{sol_to_rty, AbiIndex, EntityInfo, RTy};
-use redstart_parser::ast::{BinOp, Block, Expr, HandlerDecl, MatchArm, Pattern, Stmt, UnOp};
+use redstart_parser::ast::{
+    BinOp, Block, Expr, ForIter, HandlerDecl, MatchArm, Pattern, Stmt, UnOp,
+};
 use redstart_parser::Ident;
 use std::collections::HashMap;
 
@@ -92,9 +94,13 @@ impl Scope {
     }
 
     fn fresh(&mut self) -> String {
+        self.fresh_with("_call")
+    }
+
+    fn fresh_with(&mut self, prefix: &str) -> String {
         let n = self.tmp;
         self.tmp += 1;
-        format!("_call{n}")
+        format!("{prefix}{n}")
     }
 }
 
@@ -168,6 +174,20 @@ fn lower_stmt(stmt: &Stmt, env: &mut Env, scope: &mut Scope, out: &mut String, l
             }
             None => out.push_str(&format!("{pad}return\n")),
         },
+        Stmt::If {
+            cond,
+            then_block,
+            else_ifs,
+            else_block,
+            ..
+        } => lower_if(cond, then_block, else_ifs, else_block.as_ref(), env, scope, out, level),
+        Stmt::While { cond, body, .. } => {
+            let c = lower_cond(cond, env, scope);
+            out.push_str(&format!("{pad}while ({c}) {{\n"));
+            lower_block(body, env, scope, out, level + 1);
+            out.push_str(&format!("{pad}}}\n"));
+        }
+        Stmt::For { var, iter, body, .. } => lower_for(var, iter, body, env, scope, out, level),
         Stmt::Expr(e) => {
             if let Expr::Match { scrutinee, arms, .. } = e {
                 lower_match(scrutinee, arms, env, scope, out, level);
@@ -177,6 +197,88 @@ fn lower_stmt(stmt: &Stmt, env: &mut Env, scope: &mut Scope, out: &mut String, l
             }
         }
     }
+}
+
+/// Lower an `if`/`else if`/`else` chain.
+#[allow(clippy::too_many_arguments)]
+fn lower_if(
+    cond: &Expr,
+    then_block: &Block,
+    else_ifs: &[(Expr, Block)],
+    else_block: Option<&Block>,
+    env: &mut Env,
+    scope: &mut Scope,
+    out: &mut String,
+    level: usize,
+) {
+    let pad = indent(level);
+    let c = lower_cond(cond, env, scope);
+    out.push_str(&format!("{pad}if ({c}) {{\n"));
+    lower_block(then_block, env, scope, out, level + 1);
+    out.push_str(&format!("{pad}}}"));
+    for (c, b) in else_ifs {
+        let cs = lower_cond(c, env, scope);
+        out.push_str(&format!(" else if ({cs}) {{\n"));
+        lower_block(b, env, scope, out, level + 1);
+        out.push_str(&format!("{pad}}}"));
+    }
+    if let Some(b) = else_block {
+        out.push_str(" else {\n");
+        lower_block(b, env, scope, out, level + 1);
+        out.push_str(&format!("{pad}}}"));
+    }
+    out.push('\n');
+}
+
+/// Lower a `for` loop to an index-based AssemblyScript `for` (AS has no
+/// `for…of`): numeric ranges become a counted loop; list iteration loops over
+/// indices and binds each element.
+fn lower_for(
+    var: &Ident,
+    iter: &ForIter,
+    body: &Block,
+    env: &mut Env,
+    scope: &mut Scope,
+    out: &mut String,
+    level: usize,
+) {
+    let pad = indent(level);
+    match iter {
+        ForIter::Range { start, end } => {
+            let s = lower_expr(start, env, scope);
+            let e = lower_expr(end, env, scope);
+            let v = &var.name;
+            scope.declare_local(&var.name, RTy::Int);
+            out.push_str(&format!("{pad}for (let {v} = {s}; {v} < {e}; {v}++) {{\n"));
+            lower_block(body, env, scope, out, level + 1);
+            out.push_str(&format!("{pad}}}\n"));
+        }
+        ForIter::Each(list) => {
+            let elem_ty = match infer(list, env, scope) {
+                RTy::List(inner) => *inner,
+                _ => RTy::Unknown,
+            };
+            let ls = lower_expr(list, env, scope);
+            // Bind the list to a temp so a method/call expression is evaluated once.
+            let arr = scope.fresh_with("_arr");
+            let idx = scope.fresh_with("_i");
+            let v = &var.name;
+            out.push_str(&format!("{pad}let {arr} = {ls}\n"));
+            out.push_str(&format!(
+                "{pad}for (let {idx} = 0; {idx} < {arr}.length; {idx}++) {{\n"
+            ));
+            out.push_str(&format!("{}let {v} = {arr}[{idx}]\n", indent(level + 1)));
+            scope.declare_local(&var.name, elem_ty);
+            lower_block(body, env, scope, out, level + 1);
+            out.push_str(&format!("{pad}}}\n"));
+        }
+    }
+}
+
+/// Lower a boolean condition. `BigInt`/`BigDecimal` comparisons inside become
+/// method calls via [`lower_expr`]; this is just the entry point for clarity.
+fn lower_cond(cond: &Expr, env: &mut Env, scope: &mut Scope) -> String {
+    lower_expr(cond, env, scope)
 }
 
 /// A recognised entity constructor call.
@@ -438,6 +540,19 @@ fn lower_expr(expr: &Expr, env: &mut Env, scope: &mut Scope) -> String {
         Expr::Field { base, field, .. } => lower_field(base, &field.name, env, scope),
         Expr::Call { callee, args, .. } => lower_call(callee, args, env, scope),
         Expr::Record { .. } => "/* record */".to_string(),
+        Expr::Array { elems, .. } => {
+            let items = elems
+                .iter()
+                .map(|e| lower_expr(e, env, scope))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("[{items}]")
+        }
+        Expr::Index { base, index, .. } => {
+            let b = lower_expr(base, env, scope);
+            let i = lower_expr(index, env, scope);
+            format!("{b}[{i}]")
+        }
         Expr::Unary { op, expr, .. } => {
             let inner = lower_expr(expr, env, scope);
             match op {
@@ -602,6 +717,14 @@ fn infer(expr: &Expr, env: &mut Env, scope: &mut Scope) -> RTy {
             }
         }
         Expr::Unary { expr, .. } => infer(expr, env, scope),
+        Expr::Array { elems, .. } => {
+            let elem = elems.first().map_or(RTy::Unknown, |e| infer(e, env, scope));
+            RTy::List(Box::new(elem))
+        }
+        Expr::Index { base, .. } => match infer(base, env, scope) {
+            RTy::List(inner) => *inner,
+            _ => RTy::Unknown,
+        },
         _ => RTy::Unknown,
     }
 }

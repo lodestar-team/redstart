@@ -530,6 +530,9 @@ impl<'t> Parser<'t> {
     fn parse_stmt(&mut self) -> PResult<Stmt> {
         let start = self.cur_start();
         match self.peek_kind() {
+            Some(Token::KwIf) => self.parse_if(start),
+            Some(Token::KwWhile) => self.parse_while(start),
+            Some(Token::KwFor) => self.parse_for(start),
             Some(Token::KwLet) => {
                 self.bump();
                 let name = self.expect_ident("after `let`")?;
@@ -575,6 +578,68 @@ impl<'t> Parser<'t> {
                 }
             }
         }
+    }
+
+    fn parse_if(&mut self, start: usize) -> PResult<Stmt> {
+        self.expect(Token::KwIf, "to begin an `if`")?;
+        let cond = self.parse_expr()?;
+        let then_block = self.parse_block()?;
+
+        let mut else_ifs = Vec::new();
+        let mut else_block = None;
+        while self.check(Token::KwElse) {
+            self.bump();
+            if self.check(Token::KwIf) {
+                self.bump();
+                let c = self.parse_expr()?;
+                let b = self.parse_block()?;
+                else_ifs.push((c, b));
+            } else {
+                else_block = Some(self.parse_block()?);
+                break;
+            }
+        }
+
+        Ok(Stmt::If {
+            cond,
+            then_block,
+            else_ifs,
+            else_block,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_while(&mut self, start: usize) -> PResult<Stmt> {
+        self.expect(Token::KwWhile, "to begin a `while`")?;
+        let cond = self.parse_expr()?;
+        let body = self.parse_block()?;
+        Ok(Stmt::While {
+            cond,
+            body,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_for(&mut self, start: usize) -> PResult<Stmt> {
+        self.expect(Token::KwFor, "to begin a `for`")?;
+        let var = self.expect_ident("for the loop variable")?;
+        self.expect(Token::KwIn, "after the loop variable")
+            .map_err(|e| e.with_help("loops look like `for i in 0..n { … }` or `for x in items { … }`"))?;
+        let first = self.parse_expr()?;
+        let iter = if self.check(Token::DotDot) {
+            self.bump();
+            let end = self.parse_expr()?;
+            ForIter::Range { start: first, end }
+        } else {
+            ForIter::Each(first)
+        };
+        let body = self.parse_block()?;
+        Ok(Stmt::For {
+            var,
+            iter,
+            body,
+            span: self.span_from(start),
+        })
     }
 
     // ---- expressions (precedence climbing) ----
@@ -664,6 +729,16 @@ impl<'t> Parser<'t> {
                         span: self.span_from(start),
                     };
                 }
+                Some(Token::LBracket) => {
+                    self.bump();
+                    let index = self.parse_expr()?;
+                    self.expect(Token::RBracket, "to close an index")?;
+                    expr = Expr::Index {
+                        base: Box::new(expr),
+                        index: Box::new(index),
+                        span: self.span_from(start),
+                    };
+                }
                 _ => break,
             }
         }
@@ -724,6 +799,21 @@ impl<'t> Parser<'t> {
                 Ok(inner)
             }
             Some(Token::LBrace) => self.parse_record(),
+            Some(Token::LBracket) => {
+                self.bump();
+                let mut elems = Vec::new();
+                while !self.check(Token::RBracket) && !self.at_end() {
+                    elems.push(self.parse_expr()?);
+                    if !self.check(Token::RBracket) {
+                        self.expect(Token::Comma, "between array elements")?;
+                    }
+                }
+                self.expect(Token::RBracket, "to close an array literal")?;
+                Ok(Expr::Array {
+                    elems,
+                    span: self.span_from(start),
+                })
+            }
             Some(Token::Ident) => {
                 let mut segments = vec![{
                     let sp = self.bump().unwrap().clone();
@@ -867,6 +957,9 @@ fn is_keyword(kind: Token) -> bool {
             | Token::KwReturn
             | Token::KwIf
             | Token::KwElse
+            | Token::KwWhile
+            | Token::KwFor
+            | Token::KwIn
             | Token::KwFn
             | Token::KwMod
             | Token::KwUse
@@ -1061,6 +1154,43 @@ handler on C.Transfer(event) {
         };
         assert_eq!(*op, BinOp::Add);
         assert!(matches!(rhs.as_ref(), Expr::Binary { op: BinOp::Mul, .. }));
+    }
+
+    #[test]
+    fn parses_control_flow_and_arrays() {
+        let p = parse_ok(
+            r#"
+handler on C.E(event) {
+  let total = 0
+  if event.params.value > 0 {
+    total = 1
+  } else if event.params.value < 0 {
+    total = 2
+  } else {
+    total = 3
+  }
+  for i in 0..10 {
+    total = total + i
+  }
+  for x in [1, 2, 3] {
+    total = total + x[0]
+  }
+  while total < 100 {
+    total = total + 1
+  }
+}
+"#,
+        );
+        let body = &p.handlers[0].body;
+        assert!(matches!(body.stmts[1], Stmt::If { .. }));
+        let Stmt::If { else_ifs, else_block, .. } = &body.stmts[1] else {
+            panic!("expected if");
+        };
+        assert_eq!(else_ifs.len(), 1);
+        assert!(else_block.is_some());
+        assert!(matches!(body.stmts[2], Stmt::For { iter: ForIter::Range { .. }, .. }));
+        assert!(matches!(body.stmts[3], Stmt::For { iter: ForIter::Each(_), .. }));
+        assert!(matches!(body.stmts[4], Stmt::While { .. }));
     }
 
     #[test]

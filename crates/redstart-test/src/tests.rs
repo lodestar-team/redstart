@@ -139,6 +139,80 @@ test "forgot to mock" {
 }
 
 #[test]
+fn for_range_loop_accumulates() {
+    let out = outcomes(
+        r#"
+test "range sum" {
+  let total = 0
+  for i in 1..5 {
+    total = total + i
+  }
+  assertEq(total, 10)
+}
+"#,
+    );
+    assert!(out[0].1, "expected pass, got: {}", out[0].2);
+}
+
+#[test]
+fn for_each_and_index_and_length() {
+    let out = outcomes(
+        r#"
+test "array each" {
+  let xs = [10, 20, 30]
+  assertEq(xs.length, 3)
+  assertEq(xs[1], 20)
+  let total = 0
+  for v in xs {
+    total = total + v
+  }
+  assertEq(total, 60)
+}
+"#,
+    );
+    assert!(out[0].1, "expected pass, got: {}", out[0].2);
+}
+
+#[test]
+fn if_else_and_while() {
+    let out = outcomes(
+        r#"
+test "branch and loop" {
+  let x = 0
+  if 3 > 5 {
+    x = 1
+  } else if 3 > 2 {
+    x = 2
+  } else {
+    x = 3
+  }
+  assertEq(x, 2)
+  let n = 0
+  while n < 4 {
+    n = n + 1
+  }
+  assertEq(n, 4)
+}
+"#,
+    );
+    assert!(out[0].1, "expected pass, got: {}", out[0].2);
+}
+
+#[test]
+fn loop_inside_handler_writes_store() {
+    let out = outcomes(
+        r#"
+test "handler with conditional logic" {
+  Token.Transfer({ from: 0x01, to: 0x02, value: 50 })
+  assert(Account.at(0x01).balance < 0)
+  assertEq(Account.at(0x02).balance, 50)
+}
+"#,
+    );
+    assert!(out[0].1, "expected pass, got: {}", out[0].2);
+}
+
+#[test]
 fn event_meta_override() {
     let out = outcomes(
         r#"

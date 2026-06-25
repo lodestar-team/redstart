@@ -38,6 +38,8 @@ pub enum Value {
     Bool(bool),
     /// `null` / `None` / a missing `load`.
     Null,
+    /// An array literal value.
+    Array(Vec<Value>),
     /// A mutable working-entity handle (index into the current frame).
     Handle(usize),
     /// A read-only snapshot of a stored entity (`Entity.at(id)`).
@@ -109,6 +111,10 @@ impl Value {
             Value::Str(s) => s.clone(),
             Value::Bool(b) => b.to_string(),
             Value::Null => "null".to_string(),
+            Value::Array(items) => {
+                let parts = items.iter().map(Value::canonical).collect::<Vec<_>>();
+                format!("[{}]", parts.join(","))
+            }
             Value::Stored(name, _) => format!("<{name}>"),
             Value::Contract(a) => format!("<contract {a}>"),
             Value::Result { reverted, value } => {
@@ -139,6 +145,9 @@ pub fn value_eq(a: &Value, b: &Value) -> bool {
         (Str(x), Str(y)) => x == y,
         (Bool(x), Bool(y)) => x == y,
         (Null, Null) => true,
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(a, b)| value_eq(a, b))
+        }
         _ => false,
     }
 }

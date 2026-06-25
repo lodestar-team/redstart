@@ -45,6 +45,12 @@ pub enum Token {
     KwIf,
     #[token("else")]
     KwElse,
+    #[token("while")]
+    KwWhile,
+    #[token("for")]
+    KwFor,
+    #[token("in")]
+    KwIn,
     #[token("fn")]
     KwFn,
     #[token("mod")]
@@ -96,6 +102,8 @@ pub enum Token {
     FatArrow,
     #[token("->")]
     ThinArrow,
+    #[token("..")]
+    DotDot,
     #[token(".")]
     Dot,
     #[token("?")]
@@ -159,6 +167,9 @@ impl Token {
             KwReturn => "`return`",
             KwIf => "`if`",
             KwElse => "`else`",
+            KwWhile => "`while`",
+            KwFor => "`for`",
+            KwIn => "`in`",
             KwFn => "`fn`",
             KwMod => "`mod`",
             KwUse => "`use`",
@@ -182,6 +193,7 @@ impl Token {
             Comma => "`,`",
             FatArrow => "`=>`",
             ThinArrow => "`->`",
+            DotDot => "`..`",
             Dot => "`.`",
             Question => "`?`",
             EqEq => "`==`",

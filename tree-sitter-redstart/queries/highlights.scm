@@ -10,6 +10,10 @@
 "return" @keyword
 "match" @keyword
 
+[
+  "if" "else" "while" "for" "in"
+] @keyword.control
+
 ; Declaration names
 (abi_declaration name: (identifier) @type)
 (entity_declaration name: (identifier) @type)

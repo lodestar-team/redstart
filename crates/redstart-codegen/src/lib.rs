@@ -237,4 +237,39 @@ handler on Token.Approval(event) {
         assert!(m.contains("import { ERC20, Approval as ApprovalEvent }"));
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
+
+    #[test]
+    fn control_flow_lowers_to_native_assemblyscript() {
+        let gen = build(
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Account { id: Id<Bytes> balance: BigInt }
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+handler on Token.Transfer(event) {
+  let acct = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })
+  if event.params.value > BigInt.zero {
+    acct.balance = acct.balance + event.params.value
+  } else {
+    acct.balance = BigInt.zero
+  }
+  for i in 0..3 {
+    acct.balance = acct.balance + event.params.value
+  }
+}
+"#,
+            TRANSFER_ABI,
+        );
+        let m = &gen.mappings;
+        // BigInt comparison in the condition lowers to a method call, not `>`.
+        assert!(m.contains("if (event.params.value.gt(BigInt.zero())) {"), "got:\n{m}");
+        assert!(m.contains("} else {"), "got:\n{m}");
+        // Numeric range becomes a counted native `for`.
+        assert!(m.contains("for (let i = 0; i < 3; i++) {"), "got:\n{m}");
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
 }

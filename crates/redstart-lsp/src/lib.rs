@@ -469,7 +469,8 @@ fn word_at(text: &str, offset: usize) -> Option<String> {
 
 const KEYWORDS: &[&str] = &[
     "abi", "from", "entity", "source", "template", "handler", "on", "derived",
-    "match", "let", "return", "fn", "mod", "use", "test", "true", "false",
+    "match", "let", "return", "if", "else", "while", "for", "in", "fn", "mod",
+    "use", "test", "true", "false",
 ];
 const SCALARS: &[&str] = &["BigInt", "BigDecimal", "Bytes", "Address", "String", "Bool", "Int"];
 const GENERICS: &[&str] = &["Option", "Result", "Id", "List"];

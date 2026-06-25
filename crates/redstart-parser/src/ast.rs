@@ -240,8 +240,44 @@ pub enum Stmt {
     },
     /// `return [value];`
     Return { value: Option<Expr>, span: Span },
+    /// `if cond { … } else if cond { … } else { … }`.
+    If {
+        /// The leading condition.
+        cond: Expr,
+        /// The `then` block.
+        then_block: Block,
+        /// Zero or more `else if (cond) { … }` branches, in order.
+        else_ifs: Vec<(Expr, Block)>,
+        /// The trailing `else { … }`, if any.
+        else_block: Option<Block>,
+        span: Span,
+    },
+    /// `while cond { … }`.
+    While {
+        cond: Expr,
+        body: Block,
+        span: Span,
+    },
+    /// `for x in <iter> { … }`.
+    For {
+        /// The loop binding.
+        var: Ident,
+        /// What is being iterated.
+        iter: ForIter,
+        body: Block,
+        span: Span,
+    },
     /// An expression used as a statement (e.g. a method call).
     Expr(Expr),
+}
+
+/// The iterable of a `for` loop.
+#[derive(Debug, Clone)]
+pub enum ForIter {
+    /// A half-open numeric range `start..end`.
+    Range { start: Expr, end: Expr },
+    /// Each element of a list expression.
+    Each(Expr),
 }
 
 impl Stmt {
@@ -251,7 +287,10 @@ impl Stmt {
         match self {
             Stmt::Let { span, .. }
             | Stmt::Assign { span, .. }
-            | Stmt::Return { span, .. } => span.clone(),
+            | Stmt::Return { span, .. }
+            | Stmt::If { span, .. }
+            | Stmt::While { span, .. }
+            | Stmt::For { span, .. } => span.clone(),
             Stmt::Expr(e) => e.span().clone(),
         }
     }
@@ -289,6 +328,14 @@ pub enum Expr {
         fields: Vec<(Ident, Expr)>,
         span: Span,
     },
+    /// An array literal: `[a, b, c]`.
+    Array { elems: Vec<Expr>, span: Span },
+    /// An index access: `base[index]`.
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
     /// A binary operation.
     Binary {
         op: BinOp,
@@ -324,6 +371,8 @@ impl Expr {
             | Expr::Field { span, .. }
             | Expr::Call { span, .. }
             | Expr::Record { span, .. }
+            | Expr::Array { span, .. }
+            | Expr::Index { span, .. }
             | Expr::Binary { span, .. }
             | Expr::Unary { span, .. }
             | Expr::Match { span, .. } => span,

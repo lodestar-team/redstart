@@ -26,7 +26,7 @@ use bigdecimal::BigDecimal;
 use num_bigint::BigInt;
 use redstart_checker::Checked;
 use redstart_loader::ModuleTree;
-use redstart_parser::ast::{BinOp, Block, Expr, HandlerDecl, Stmt, UnOp};
+use redstart_parser::ast::{BinOp, Block, Expr, ForIter, HandlerDecl, Stmt, UnOp};
 use redstart_parser::Span;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
@@ -219,8 +219,91 @@ impl<'t> Interp<'t> {
                 }
                 frame.returned = true;
             }
+            Stmt::If {
+                cond,
+                then_block,
+                else_ifs,
+                else_block,
+                ..
+            } => {
+                if self.eval(cond, world, frame)?.as_bool().unwrap_or(false) {
+                    self.exec_block(then_block, world, frame)?;
+                    return Ok(());
+                }
+                for (c, block) in else_ifs {
+                    if self.eval(c, world, frame)?.as_bool().unwrap_or(false) {
+                        self.exec_block(block, world, frame)?;
+                        return Ok(());
+                    }
+                }
+                if let Some(block) = else_block {
+                    self.exec_block(block, world, frame)?;
+                }
+            }
+            Stmt::While { cond, body, span } => {
+                let mut guard = 0u64;
+                while self.eval(cond, world, frame)?.as_bool().unwrap_or(false) {
+                    self.exec_block(body, world, frame)?;
+                    if frame.returned {
+                        break;
+                    }
+                    guard += 1;
+                    if guard > 10_000_000 {
+                        return err("`while` loop exceeded 10M iterations (likely non-terminating)", Some(span.clone()));
+                    }
+                }
+            }
+            Stmt::For { var, iter, body, span } => {
+                self.exec_for(var, iter, body, world, frame, span)?;
+            }
             Stmt::Expr(e) => {
                 self.exec_expr_stmt(e, world, frame)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn exec_for(
+        &self,
+        var: &redstart_parser::Ident,
+        iter: &ForIter,
+        body: &Block,
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<()> {
+        match iter {
+            ForIter::Range { start, end } => {
+                let lo = self
+                    .eval(start, world, frame)?
+                    .to_bigint()
+                    .ok_or_else(|| TError { message: "range start must be numeric".into(), span: Some(start.span().clone()) })?;
+                let hi = self
+                    .eval(end, world, frame)?
+                    .to_bigint()
+                    .ok_or_else(|| TError { message: "range end must be numeric".into(), span: Some(end.span().clone()) })?;
+                let mut i = lo;
+                while i < hi {
+                    frame.locals.insert(var.name.clone(), Value::Big(i.clone()));
+                    self.exec_block(body, world, frame)?;
+                    if frame.returned {
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            ForIter::Each(list) => {
+                let items = match self.eval(list, world, frame)? {
+                    Value::Array(items) => items,
+                    other => return err(format!("`for … in` needs an array, got `{}`", other.canonical()), Some(span.clone())),
+                };
+                for item in items {
+                    frame.locals.insert(var.name.clone(), item);
+                    self.exec_block(body, world, frame)?;
+                    if frame.returned {
+                        break;
+                    }
+                }
             }
         }
         Ok(())
@@ -294,6 +377,11 @@ impl<'t> Interp<'t> {
     }
 
     fn assign(&self, target: &Expr, v: Value, world: &mut World, frame: &mut Frame) -> R<()> {
+        // Plain variable reassignment (`i = i + 1`, accumulator updates).
+        if let Some(name) = single_path(target) {
+            frame.locals.insert(name, v);
+            return Ok(());
+        }
         if let Expr::Field { base, field, span } = target {
             let bv = self.eval(base, world, frame)?;
             if let Value::Handle(h) = bv {
@@ -445,6 +533,25 @@ impl<'t> Interp<'t> {
                 }
             }
             Expr::Binary { op, lhs, rhs, span } => self.eval_binary(*op, lhs, rhs, world, frame, span),
+            Expr::Array { elems, .. } => {
+                let mut items = Vec::with_capacity(elems.len());
+                for e in elems {
+                    items.push(self.eval(e, world, frame)?);
+                }
+                Ok(Value::Array(items))
+            }
+            Expr::Index { base, index, span } => {
+                let bv = self.eval(base, world, frame)?;
+                let iv = self.eval(index, world, frame)?;
+                let Value::Array(items) = bv else {
+                    return err("can only index an array", Some(base.span().clone()));
+                };
+                let i = iv
+                    .to_bigint()
+                    .and_then(|b| usize::try_from(b).ok())
+                    .ok_or_else(|| TError { message: "array index must be a non-negative integer".into(), span: Some(index.span().clone()) })?;
+                items.get(i).cloned().ok_or_else(|| TError { message: format!("array index {i} out of bounds (len {})", items.len()), span: Some(span.clone()) })
+            }
             Expr::Record { span, .. } => err("a record is only valid as a constructor or event argument", Some(span.clone())),
             Expr::Match { span, .. } => err("`match` is only supported as a statement", Some(span.clone())),
         }
@@ -487,6 +594,10 @@ impl<'t> Interp<'t> {
             Value::EventTx(ev) => match field {
                 "hash" => Ok(Value::Bytes(ev.tx_hash)),
                 _ => err(format!("transaction has no field `{field}`"), Some(span.clone())),
+            },
+            Value::Array(ref items) => match field {
+                "length" => Ok(Value::Int(items.len() as i64)),
+                _ => err(format!("array has no field `{field}`"), Some(span.clone())),
             },
             Value::Handle(h) => Ok(frame.working[h].fields.get(field).cloned().unwrap_or(Value::Null)),
             Value::Stored(_, fields) => Ok(fields.get(field).cloned().unwrap_or(Value::Null)),

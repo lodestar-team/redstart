@@ -28,8 +28,8 @@ pub use diag::Diag;
 pub use ty::{is_scalar, resolve_type, sol_to_rty, EntityInfo, RTy};
 use redstart_loader::ModuleTree;
 use redstart_parser::ast::{
-    EntityDecl, Expr, FieldDecl, HandlerDecl, MatchArm, Pattern, Setting, SourceDecl, Stmt,
-    TemplateDecl, TypeExpr,
+    EntityDecl, Expr, FieldDecl, ForIter, HandlerDecl, MatchArm, Pattern, Setting, SourceDecl,
+    Stmt, TemplateDecl, TypeExpr,
 };
 use std::collections::HashMap;
 
@@ -390,12 +390,67 @@ fn check_block(
             }
             Stmt::Return { value: Some(v), .. } => check_expr(v, ctx, locals, file, diags),
             Stmt::Return { .. } => {}
+            Stmt::If {
+                cond,
+                then_block,
+                else_ifs,
+                else_block,
+                ..
+            } => {
+                check_expr(cond, ctx, locals, file, diags);
+                let mut b = locals.clone();
+                check_block(&then_block.stmts, ctx, &mut b, file, diags);
+                for (c, block) in else_ifs {
+                    check_expr(c, ctx, locals, file, diags);
+                    let mut bb = locals.clone();
+                    check_block(&block.stmts, ctx, &mut bb, file, diags);
+                }
+                if let Some(block) = else_block {
+                    let mut bb = locals.clone();
+                    check_block(&block.stmts, ctx, &mut bb, file, diags);
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                check_expr(cond, ctx, locals, file, diags);
+                let mut b = locals.clone();
+                check_block(&body.stmts, ctx, &mut b, file, diags);
+            }
+            Stmt::For { var, iter, body, .. } => {
+                let elem = check_for_iter(iter, ctx, locals, file, diags);
+                let mut b = locals.clone();
+                b.insert(var.name.clone(), elem);
+                check_block(&body.stmts, ctx, &mut b, file, diags);
+            }
             Stmt::Expr(e) => {
                 if let Expr::Match { scrutinee, arms, .. } = e {
                     check_match(scrutinee, arms, ctx, locals, file, diags);
                 } else {
                     check_expr(e, ctx, locals, file, diags);
                 }
+            }
+        }
+    }
+}
+
+/// Check a `for` iterable, returning the loop variable's element type.
+fn check_for_iter(
+    iter: &ForIter,
+    ctx: &BodyCtx,
+    locals: &HashMap<String, RTy>,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) -> RTy {
+    match iter {
+        ForIter::Range { start, end } => {
+            check_expr(start, ctx, locals, file, diags);
+            check_expr(end, ctx, locals, file, diags);
+            RTy::Int
+        }
+        ForIter::Each(list) => {
+            check_expr(list, ctx, locals, file, diags);
+            match infer(list, ctx, locals) {
+                RTy::List(inner) => *inner,
+                _ => RTy::Unknown,
             }
         }
     }
