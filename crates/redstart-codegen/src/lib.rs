@@ -356,6 +356,42 @@ handler on Token.Transfer(event) {
     }
 
     #[test]
+    fn template_handler_imports_use_templates_path() {
+        // Regression: `graph codegen` writes a template's ABI types under
+        // `generated/templates/<Template>/<Abi>.ts`, not `generated/<Template>/…`.
+        // A wrong path makes `graph build` fail with TS6054 (file not found).
+        let gen = build(
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Account { id: Id<Bytes> balance: BigInt }
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+template TokenTemplate {
+  abi: ERC20
+  network: mainnet
+}
+handler on TokenTemplate.Transfer(event) {
+  let a = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })
+  a.balance = a.balance + event.params.value
+}
+"#,
+            TRANSFER_ABI,
+        );
+        let m = &gen.mappings;
+        assert!(
+            m.contains("from \"../generated/templates/TokenTemplate/ERC20\""),
+            "template handler must import from generated/templates/…, got:\n{m}"
+        );
+        // A regular data source keeps the plain path.
+        assert!(!m.contains("from \"../generated/TokenTemplate/ERC20\""), "got:\n{m}");
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
+
+    #[test]
     fn graph_ts_namespaces_and_statics() {
         let gen = build(
             r#"

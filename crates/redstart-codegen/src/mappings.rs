@@ -107,8 +107,16 @@ fn render_imports(
         if specifiers.is_empty() {
             continue;
         }
+        // `graph codegen` writes a template's ABI types under
+        // `generated/templates/<Template>/<Abi>.ts`, but a regular data source's
+        // under `generated/<Source>/<Abi>.ts`.
+        let prefix = if env.templates.contains(&source) {
+            "../generated/templates"
+        } else {
+            "../generated"
+        };
         out.push_str(&format!(
-            "import {{ {} }} from \"../generated/{source}/{abi}\"\n",
+            "import {{ {} }} from \"{prefix}/{source}/{abi}\"\n",
             specifiers.join(", ")
         ));
     }
