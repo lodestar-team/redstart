@@ -32,6 +32,7 @@ module.exports = grammar({
       $.abi_declaration,
       $.entity_declaration,
       $.enum_declaration,
+      $.interface_declaration,
       $.source_declaration,
       $.template_declaration,
       $.handler_declaration,
@@ -52,7 +53,14 @@ module.exports = grammar({
     entity_declaration: $ => seq(
       'entity',
       field('name', $.identifier),
+      optional(seq('implements', sep1(field('interface', $.identifier), '&'))),
       repeat(field('modifier', $.identifier)),
+      '{', repeat($.field_declaration), '}',
+    ),
+
+    interface_declaration: $ => seq(
+      'interface',
+      field('name', $.identifier),
       '{', repeat($.field_declaration), '}',
     ),
 

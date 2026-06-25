@@ -135,9 +135,25 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
         .iter()
         .flat_map(|m| m.program.enums.iter().map(|e| e.name.name.clone()))
         .collect();
+    // Interface name -> its declared field names (for `implements` checking).
+    let interfaces: HashMap<String, Vec<String>> = modules
+        .iter()
+        .flat_map(|m| &m.program.interfaces)
+        .map(|i| (i.name.name.clone(), i.fields.iter().map(|f| f.name.name.clone()).collect()))
+        .collect();
+    // Interface and enum names are both valid field types.
+    let mut aux_types = enum_names.clone();
+    aux_types.extend(interfaces.keys().cloned());
+
     for (m, file) in modules.iter().zip(&files) {
+        for i in &m.program.interfaces {
+            for f in &i.fields {
+                validate_type(&f.ty, &entity_names, &aux_types, file, &mut diags);
+            }
+        }
         for e in &m.program.entities {
-            check_entity(e, &entity_names, &enum_names, &entity_meta, file, &mut diags);
+            check_entity(e, &entity_names, &aux_types, &entity_meta, file, &mut diags);
+            check_implements(e, &interfaces, file, &mut diags);
         }
         for s in &m.program.sources {
             check_source(s, &abis, file, &mut diags);
@@ -223,15 +239,43 @@ fn is_option_type(ty: &TypeExpr) -> bool {
 fn check_entity(
     e: &EntityDecl,
     entity_names: &[String],
-    enum_names: &[String],
+    aux_types: &[String],
     meta: &HashMap<String, EntityMeta>,
     file: &str,
     diags: &mut Vec<Diag>,
 ) {
     for f in &e.fields {
-        validate_type(&f.ty, entity_names, enum_names, file, diags);
+        validate_type(&f.ty, entity_names, aux_types, file, diags);
         if let Some(back) = &f.derived_from {
             check_derived(f, back, meta, entity_names, file, diags);
+        }
+    }
+}
+
+/// Validate an entity's `implements` clause: each interface must exist, and the
+/// entity must redeclare every field the interface defines (The Graph requires
+/// it — catching it here turns a `graph build` failure into a teaching error).
+fn check_implements(
+    e: &EntityDecl,
+    interfaces: &HashMap<String, Vec<String>>,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
+    for iface in &e.implements {
+        let Some(iface_fields) = interfaces.get(&iface.name) else {
+            diags.push(
+                Diag::new(file, &iface.span, "E003", format!("unknown interface `{}`", iface.name), "not a declared interface")
+                    .with_help("declare it with `interface Name { … }`"),
+            );
+            continue;
+        };
+        for field in iface_fields {
+            if !e.fields.iter().any(|f| &f.name.name == field) {
+                diags.push(
+                    Diag::new(file, &e.name.span, "E004", format!("`{}` implements `{}` but is missing field `{field}`", e.name.name, iface.name), "missing interface field")
+                        .with_help("an entity must redeclare every field of the interfaces it implements"),
+                );
+            }
         }
     }
 }
@@ -857,9 +901,9 @@ fn entity_ctor(value: &Expr) -> Option<(String, CtorRecord<'_>)> {
     Some((entity, record))
 }
 
-fn validate_type(ty: &TypeExpr, entity_names: &[String], enum_names: &[String], file: &str, diags: &mut Vec<Diag>) {
+fn validate_type(ty: &TypeExpr, entity_names: &[String], aux_types: &[String], file: &str, diags: &mut Vec<Diag>) {
     match ty {
-        TypeExpr::List { elem, .. } => validate_type(elem, entity_names, enum_names, file, diags),
+        TypeExpr::List { elem, .. } => validate_type(elem, entity_names, aux_types, file, diags),
         TypeExpr::Generic { base, args, .. } => {
             let name = base.simple_name().unwrap_or("");
             if !matches!(name, "Option" | "Id" | "List" | "Result") {
@@ -872,18 +916,18 @@ fn validate_type(ty: &TypeExpr, entity_names: &[String], enum_names: &[String], 
                 ));
             }
             for a in args {
-                validate_type(a, entity_names, enum_names, file, diags);
+                validate_type(a, entity_names, aux_types, file, diags);
             }
         }
         TypeExpr::Path { .. } => {
             let name = ty.simple_name().unwrap_or("");
             if !is_scalar(name)
                 && !entity_names.iter().any(|n| n == name)
-                && !enum_names.iter().any(|n| n == name)
+                && !aux_types.iter().any(|n| n == name)
             {
                 diags.push(
-                    Diag::new(file, ty.span(), "E002", format!("unknown type `{name}`"), "not a scalar, entity, or enum")
-                        .with_help("did you forget to declare this entity/enum, or misspell a scalar?"),
+                    Diag::new(file, ty.span(), "E002", format!("unknown type `{name}`"), "not a scalar, entity, enum, or interface")
+                        .with_help("did you forget to declare this entity/enum/interface, or misspell a scalar?"),
                 );
             }
         }

@@ -27,6 +27,8 @@ pub enum Token {
     KwEntity,
     #[token("enum")]
     KwEnum,
+    #[token("interface")]
+    KwInterface,
     #[token("source")]
     KwSource,
     #[token("template")]
@@ -128,6 +130,8 @@ pub enum Token {
     // logical
     #[token("&&")]
     AndAnd,
+    #[token("&")]
+    Amp,
     #[token("||")]
     OrOr,
     #[token("!")]
@@ -160,6 +164,7 @@ impl Token {
             KwFrom => "`from`",
             KwEntity => "`entity`",
             KwEnum => "`enum`",
+            KwInterface => "`interface`",
             KwSource => "`source`",
             KwTemplate => "`template`",
             KwHandler => "`handler`",
@@ -206,6 +211,7 @@ impl Token {
             Lt => "`<`",
             Gt => "`>`",
             AndAnd => "`&&`",
+            Amp => "`&`",
             OrOr => "`||`",
             Bang => "`!`",
             Plus => "`+`",

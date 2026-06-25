@@ -20,6 +20,8 @@ pub struct Program {
     pub entities: Vec<EntityDecl>,
     /// `enum Name { A, B }` declarations.
     pub enums: Vec<EnumDecl>,
+    /// `interface Name { ... }` declarations.
+    pub interfaces: Vec<InterfaceDecl>,
     /// `source Name { ... }` data sources.
     pub sources: Vec<SourceDecl>,
     /// `template Name { ... }` dynamic data sources.
@@ -63,13 +65,26 @@ pub struct AbiDecl {
     pub span: Span,
 }
 
-/// `entity Name [modifiers] { fields }`
+/// `entity Name [implements A & B] [modifiers] { fields }`
 #[derive(Debug, Clone)]
 pub struct EntityDecl {
     /// The entity name.
     pub name: Ident,
+    /// Interfaces this entity implements (`implements A & B`).
+    pub implements: Vec<Ident>,
     /// Modifiers such as `immutable`, `timeseries`.
     pub modifiers: Vec<Ident>,
+    /// The declared fields.
+    pub fields: Vec<FieldDecl>,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// `interface Name { fields }` — a GraphQL interface entities can implement.
+#[derive(Debug, Clone)]
+pub struct InterfaceDecl {
+    /// The interface name.
+    pub name: Ident,
     /// The declared fields.
     pub fields: Vec<FieldDecl>,
     /// Span of the whole declaration.

@@ -2,7 +2,7 @@
 
 ; Keywords
 [
-  "mod" "use" "abi" "from" "entity" "enum" "source" "template"
+  "mod" "use" "abi" "from" "entity" "enum" "interface" "implements" "source" "template"
   "handler" "on" "call" "block" "file" "every" "once" "fn" "test" "derived" "pub"
 ] @keyword
 
@@ -19,6 +19,8 @@
 (entity_declaration name: (identifier) @type)
 (enum_declaration name: (identifier) @type)
 (enum_declaration variant: (identifier) @constant)
+(interface_declaration name: (identifier) @type)
+(entity_declaration interface: (identifier) @type)
 (source_declaration name: (identifier) @type)
 (template_declaration name: (identifier) @type)
 (function_declaration name: (identifier) @function)

@@ -79,7 +79,7 @@ good in the lineage of Matchstick, not a venture bet.
 | Dynamic data sources — `template` blocks + `<Template>.create(addr)` / `.createWithContext(addr, ctx)` and `DataSourceContext`, the factory pattern | `redstart-codegen` | ✅ working |
 | File data sources — `template T { kind: file }` + `handler file T(content)` → `kind: file/ipfs` manifest, the off-chain-metadata (IPFS) pattern | `redstart-codegen` | ✅ working |
 | graph-ts surface — `log`, `crypto`, `dataSource`, `store`, `json`, `ipfs`, `ethereum` namespaces + fuller `BigInt`/`BigDecimal`/`Bytes`/`Address` statics & methods, with whole-word import inference | `redstart-codegen` | ✅ working |
-| Schema breadth — `enum` declarations, `Int8` / `Timestamp` scalars (the rest: `Bytes`, `BigInt`, `BigDecimal`, …), `@derivedFrom`, `@entity(immutable/timeseries)` | `redstart-codegen` | ✅ working |
+| Schema breadth — `enum` declarations, `interface` + `entity X implements Y & Z` (with field-completeness checking), `Int8` / `Timestamp` scalars, `@derivedFrom`, `@entity(immutable/timeseries)` | `redstart-codegen` | ✅ working |
 | Semantic checker — unknown source/event/type, missing source settings, `derived` back-refs, required-field init, `.value`-without-`match`, arithmetic-on-`Option`, assign-to-`derived` | `redstart-checker` | ✅ working |
 | `redstart test` — native test interpreter (mock store + mocked calls, no WASM/Docker/Matchstick) | `redstart-test` | ✅ working |
 | `redstart fmt` — canonical, comment-preserving formatting (`--check` mode) | `redstart-cli` | ✅ working |

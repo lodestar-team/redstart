@@ -210,6 +210,7 @@ impl<'t> Parser<'t> {
             Some(Token::KwAbi) => program.abis.push(self.parse_abi()?),
             Some(Token::KwEntity) => program.entities.push(self.parse_entity()?),
             Some(Token::KwEnum) => program.enums.push(self.parse_enum()?),
+            Some(Token::KwInterface) => program.interfaces.push(self.parse_interface()?),
             Some(Token::KwSource) => program.sources.push(self.parse_source()?),
             Some(Token::KwTemplate) => program.templates.push(self.parse_template()?),
             Some(Token::KwHandler) => program.handlers.push(self.parse_handler()?),
@@ -238,6 +239,7 @@ impl<'t> Parser<'t> {
                 Token::KwAbi
                     | Token::KwEntity
                     | Token::KwEnum
+                    | Token::KwInterface
                     | Token::KwSource
                     | Token::KwTemplate
                     | Token::KwHandler
@@ -300,6 +302,18 @@ impl<'t> Parser<'t> {
         self.expect(Token::KwEntity, "to begin an entity")?;
         let name = self.expect_ident("for the entity name")?;
 
+        // Optional `implements A & B` clause (before bare-ident modifiers, since
+        // `implements` itself lexes as an identifier).
+        let mut implements = Vec::new();
+        if self.peek_text_is("implements") {
+            self.bump();
+            implements.push(self.expect_ident("for the implemented interface")?);
+            while self.check(Token::Amp) {
+                self.bump();
+                implements.push(self.expect_ident("for an implemented interface")?);
+            }
+        }
+
         // Bare-identifier modifiers, e.g. `entity Swap immutable {`.
         let mut modifiers = Vec::new();
         while self.check(Token::Ident) {
@@ -317,7 +331,26 @@ impl<'t> Parser<'t> {
 
         Ok(EntityDecl {
             name,
+            implements,
             modifiers,
+            fields,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_interface(&mut self) -> PResult<InterfaceDecl> {
+        let start = self.cur_start();
+        self.expect(Token::KwInterface, "to begin an interface")?;
+        let name = self.expect_ident("for the interface name")?;
+        self.expect(Token::LBrace, "to open the interface body")?;
+        let mut fields = Vec::new();
+        while !self.check(Token::RBrace) && !self.at_end() {
+            fields.push(self.parse_field()?);
+            self.eat_comma();
+        }
+        self.expect(Token::RBrace, "to close the interface body")?;
+        Ok(InterfaceDecl {
+            name,
             fields,
             span: self.span_from(start),
         })
@@ -1058,6 +1091,7 @@ fn is_keyword(kind: Token) -> bool {
             | Token::KwFrom
             | Token::KwEntity
             | Token::KwEnum
+            | Token::KwInterface
             | Token::KwSource
             | Token::KwTemplate
             | Token::KwHandler
@@ -1265,6 +1299,22 @@ handler on C.Transfer(event) {
         };
         assert_eq!(*op, BinOp::Add);
         assert!(matches!(rhs.as_ref(), Expr::Binary { op: BinOp::Mul, .. }));
+    }
+
+    #[test]
+    fn parses_interface_and_implements() {
+        let p = parse_ok(
+            "interface Token { id: Id<Bytes> symbol: String } \
+             entity FT implements Token & Other immutable { id: Id<Bytes> symbol: String }",
+        );
+        assert_eq!(p.interfaces.len(), 1);
+        assert_eq!(p.interfaces[0].name.name, "Token");
+        assert_eq!(p.interfaces[0].fields.len(), 2);
+        let e = &p.entities[0];
+        assert_eq!(e.implements.len(), 2);
+        assert_eq!(e.implements[0].name, "Token");
+        assert_eq!(e.implements[1].name, "Other");
+        assert!(e.modifiers.iter().any(|m| m.name == "immutable"));
     }
 
     #[test]

@@ -18,7 +18,9 @@ use lower::Env;
 use manifest::ManifestInput;
 use redstart_checker::Checked;
 use redstart_loader::ModuleTree;
-use redstart_parser::ast::{EntityDecl, EnumDecl, HandlerDecl, SourceDecl, TemplateDecl};
+use redstart_parser::ast::{
+    EntityDecl, EnumDecl, HandlerDecl, InterfaceDecl, SourceDecl, TemplateDecl,
+};
 use std::path::PathBuf;
 
 /// The artifacts produced by a Redstart build.
@@ -65,6 +67,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
     // Aggregate declarations across every module, in deterministic order.
     let mut entities: Vec<&EntityDecl> = Vec::new();
     let mut enums: Vec<&EnumDecl> = Vec::new();
+    let mut interfaces: Vec<&InterfaceDecl> = Vec::new();
     let mut sources: Vec<&SourceDecl> = Vec::new();
     let mut templates: Vec<&TemplateDecl> = Vec::new();
     let mut handlers: Vec<&HandlerDecl> = Vec::new();
@@ -72,6 +75,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
     for module in tree.ordered() {
         entities.extend(module.program.entities.iter());
         enums.extend(module.program.enums.iter());
+        interfaces.extend(module.program.interfaces.iter());
         sources.extend(module.program.sources.iter());
         templates.extend(module.program.templates.iter());
         handlers.extend(module.program.handlers.iter());
@@ -80,7 +84,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
     let entity_names: Vec<String> = entities.iter().map(|e| e.name.name.clone()).collect();
 
     // ---- schema ----
-    let schema = schema::render(&entities, &enums);
+    let schema = schema::render(&entities, &enums, &interfaces);
 
     // ---- manifest ----
     let input = ManifestInput {

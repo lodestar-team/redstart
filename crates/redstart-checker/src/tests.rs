@@ -200,3 +200,27 @@ fn unknown_field_type_still_rejected() {
     let src = format!("{PREAMBLE}\nentity Tx {{ id: Id<Bytes> kind: Nonsense }}\n");
     assert_err_contains(run(&src), "unknown type `Nonsense`");
 }
+
+#[test]
+fn entity_implementing_interface_passes() {
+    let src = format!(
+        "{PREAMBLE}\ninterface Named {{ id: Id<Bytes> name: String }}\n\
+         entity Thing implements Named {{ id: Id<Bytes> name: String extra: BigInt }}\n"
+    );
+    assert!(run(&src).is_ok(), "valid implements should pass");
+}
+
+#[test]
+fn missing_interface_field_is_rejected() {
+    let src = format!(
+        "{PREAMBLE}\ninterface Named {{ id: Id<Bytes> name: String }}\n\
+         entity Thing implements Named {{ id: Id<Bytes> }}\n"
+    );
+    assert_err_contains(run(&src), "missing field `name`");
+}
+
+#[test]
+fn implementing_unknown_interface_is_rejected() {
+    let src = format!("{PREAMBLE}\nentity Thing implements Ghost {{ id: Id<Bytes> }}\n");
+    assert_err_contains(run(&src), "unknown interface `Ghost`");
+}
