@@ -31,6 +31,7 @@ module.exports = grammar({
       $.use_declaration,
       $.abi_declaration,
       $.entity_declaration,
+      $.enum_declaration,
       $.source_declaration,
       $.template_declaration,
       $.handler_declaration,
@@ -53,6 +54,12 @@ module.exports = grammar({
       field('name', $.identifier),
       repeat(field('modifier', $.identifier)),
       '{', repeat($.field_declaration), '}',
+    ),
+
+    enum_declaration: $ => seq(
+      'enum',
+      field('name', $.identifier),
+      '{', sepTrailing(field('variant', $.identifier), ','), '}',
     ),
 
     field_declaration: $ => seq(

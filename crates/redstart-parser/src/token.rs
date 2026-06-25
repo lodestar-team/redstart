@@ -25,6 +25,8 @@ pub enum Token {
     KwFrom,
     #[token("entity")]
     KwEntity,
+    #[token("enum")]
+    KwEnum,
     #[token("source")]
     KwSource,
     #[token("template")]
@@ -157,6 +159,7 @@ impl Token {
             KwAbi => "`abi`",
             KwFrom => "`from`",
             KwEntity => "`entity`",
+            KwEnum => "`enum`",
             KwSource => "`source`",
             KwTemplate => "`template`",
             KwHandler => "`handler`",

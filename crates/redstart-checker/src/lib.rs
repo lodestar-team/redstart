@@ -131,9 +131,13 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
 
     // ---- per-declaration validation ----
     let entity_names: Vec<String> = entities.keys().cloned().collect();
+    let enum_names: Vec<String> = modules
+        .iter()
+        .flat_map(|m| m.program.enums.iter().map(|e| e.name.name.clone()))
+        .collect();
     for (m, file) in modules.iter().zip(&files) {
         for e in &m.program.entities {
-            check_entity(e, &entity_names, &entity_meta, file, &mut diags);
+            check_entity(e, &entity_names, &enum_names, &entity_meta, file, &mut diags);
         }
         for s in &m.program.sources {
             check_source(s, &abis, file, &mut diags);
@@ -219,12 +223,13 @@ fn is_option_type(ty: &TypeExpr) -> bool {
 fn check_entity(
     e: &EntityDecl,
     entity_names: &[String],
+    enum_names: &[String],
     meta: &HashMap<String, EntityMeta>,
     file: &str,
     diags: &mut Vec<Diag>,
 ) {
     for f in &e.fields {
-        validate_type(&f.ty, entity_names, file, diags);
+        validate_type(&f.ty, entity_names, enum_names, file, diags);
         if let Some(back) = &f.derived_from {
             check_derived(f, back, meta, entity_names, file, diags);
         }
@@ -838,9 +843,9 @@ fn entity_ctor(value: &Expr) -> Option<(String, CtorRecord<'_>)> {
     Some((entity, record))
 }
 
-fn validate_type(ty: &TypeExpr, entity_names: &[String], file: &str, diags: &mut Vec<Diag>) {
+fn validate_type(ty: &TypeExpr, entity_names: &[String], enum_names: &[String], file: &str, diags: &mut Vec<Diag>) {
     match ty {
-        TypeExpr::List { elem, .. } => validate_type(elem, entity_names, file, diags),
+        TypeExpr::List { elem, .. } => validate_type(elem, entity_names, enum_names, file, diags),
         TypeExpr::Generic { base, args, .. } => {
             let name = base.simple_name().unwrap_or("");
             if !matches!(name, "Option" | "Id" | "List" | "Result") {
@@ -853,15 +858,18 @@ fn validate_type(ty: &TypeExpr, entity_names: &[String], file: &str, diags: &mut
                 ));
             }
             for a in args {
-                validate_type(a, entity_names, file, diags);
+                validate_type(a, entity_names, enum_names, file, diags);
             }
         }
         TypeExpr::Path { .. } => {
             let name = ty.simple_name().unwrap_or("");
-            if !is_scalar(name) && !entity_names.iter().any(|n| n == name) {
+            if !is_scalar(name)
+                && !entity_names.iter().any(|n| n == name)
+                && !enum_names.iter().any(|n| n == name)
+            {
                 diags.push(
-                    Diag::new(file, ty.span(), "E002", format!("unknown type `{name}`"), "not a scalar or entity")
-                        .with_help("did you forget to declare this entity, or misspell a scalar?"),
+                    Diag::new(file, ty.span(), "E002", format!("unknown type `{name}`"), "not a scalar, entity, or enum")
+                        .with_help("did you forget to declare this entity/enum, or misspell a scalar?"),
                 );
             }
         }

@@ -18,6 +18,8 @@ pub struct Program {
     pub abis: Vec<AbiDecl>,
     /// `entity Name { ... }` declarations.
     pub entities: Vec<EntityDecl>,
+    /// `enum Name { A, B }` declarations.
+    pub enums: Vec<EnumDecl>,
     /// `source Name { ... }` data sources.
     pub sources: Vec<SourceDecl>,
     /// `template Name { ... }` dynamic data sources.
@@ -70,6 +72,17 @@ pub struct EntityDecl {
     pub modifiers: Vec<Ident>,
     /// The declared fields.
     pub fields: Vec<FieldDecl>,
+    /// Span of the whole declaration.
+    pub span: Span,
+}
+
+/// `enum Name { Variant, Variant }` — a GraphQL enum type.
+#[derive(Debug, Clone)]
+pub struct EnumDecl {
+    /// The enum name.
+    pub name: Ident,
+    /// The variant names, in declared order.
+    pub variants: Vec<Ident>,
     /// Span of the whole declaration.
     pub span: Span,
 }

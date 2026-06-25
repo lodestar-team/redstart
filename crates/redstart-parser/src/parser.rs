@@ -209,6 +209,7 @@ impl<'t> Parser<'t> {
             Some(Token::KwUse) => program.uses.push(self.parse_use()?),
             Some(Token::KwAbi) => program.abis.push(self.parse_abi()?),
             Some(Token::KwEntity) => program.entities.push(self.parse_entity()?),
+            Some(Token::KwEnum) => program.enums.push(self.parse_enum()?),
             Some(Token::KwSource) => program.sources.push(self.parse_source()?),
             Some(Token::KwTemplate) => program.templates.push(self.parse_template()?),
             Some(Token::KwHandler) => program.handlers.push(self.parse_handler()?),
@@ -236,6 +237,7 @@ impl<'t> Parser<'t> {
                 kind,
                 Token::KwAbi
                     | Token::KwEntity
+                    | Token::KwEnum
                     | Token::KwSource
                     | Token::KwTemplate
                     | Token::KwHandler
@@ -317,6 +319,24 @@ impl<'t> Parser<'t> {
             name,
             modifiers,
             fields,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_enum(&mut self) -> PResult<EnumDecl> {
+        let start = self.cur_start();
+        self.expect(Token::KwEnum, "to begin an enum")?;
+        let name = self.expect_ident("for the enum name")?;
+        self.expect(Token::LBrace, "to open the enum body")?;
+        let mut variants = Vec::new();
+        while !self.check(Token::RBrace) && !self.at_end() {
+            variants.push(self.expect_ident("for an enum variant")?);
+            self.eat_comma();
+        }
+        self.expect(Token::RBrace, "to close the enum body")?;
+        Ok(EnumDecl {
+            name,
+            variants,
             span: self.span_from(start),
         })
     }
@@ -1023,6 +1043,7 @@ fn is_keyword(kind: Token) -> bool {
         Token::KwAbi
             | Token::KwFrom
             | Token::KwEntity
+            | Token::KwEnum
             | Token::KwSource
             | Token::KwTemplate
             | Token::KwHandler
@@ -1230,6 +1251,15 @@ handler on C.Transfer(event) {
         };
         assert_eq!(*op, BinOp::Add);
         assert!(matches!(rhs.as_ref(), Expr::Binary { op: BinOp::Mul, .. }));
+    }
+
+    #[test]
+    fn parses_enum_declaration() {
+        let p = parse_ok("enum Status { Active, Closed, Pending }");
+        assert_eq!(p.enums.len(), 1);
+        assert_eq!(p.enums[0].name.name, "Status");
+        assert_eq!(p.enums[0].variants.len(), 3);
+        assert_eq!(p.enums[0].variants[1].name, "Closed");
     }
 
     #[test]

@@ -186,3 +186,17 @@ fn derived_backref_must_exist() {
     );
     assert_err_contains(run(&src), "has no field `nope`");
 }
+
+#[test]
+fn enum_typed_field_is_accepted() {
+    let src = format!(
+        "{PREAMBLE}\nenum Kind {{ Mint, Burn }}\nentity Tx {{ id: Id<Bytes> kind: Kind at: Timestamp }}\n"
+    );
+    assert!(run(&src).is_ok(), "enum/Timestamp field should type-check");
+}
+
+#[test]
+fn unknown_field_type_still_rejected() {
+    let src = format!("{PREAMBLE}\nentity Tx {{ id: Id<Bytes> kind: Nonsense }}\n");
+    assert_err_contains(run(&src), "unknown type `Nonsense`");
+}

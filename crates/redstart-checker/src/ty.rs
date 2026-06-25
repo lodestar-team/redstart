@@ -93,7 +93,16 @@ pub fn sol_to_rty(sol: &str) -> RTy {
 pub fn is_scalar(name: &str) -> bool {
     matches!(
         name,
-        "BigInt" | "BigDecimal" | "Bytes" | "Address" | "String" | "Bool" | "Int" | "Int8" | "ID"
+        "BigInt"
+            | "BigDecimal"
+            | "Bytes"
+            | "Address"
+            | "String"
+            | "Bool"
+            | "Int"
+            | "Int8"
+            | "Timestamp"
+            | "ID"
     )
 }
 
