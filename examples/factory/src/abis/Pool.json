@@ -1,0 +1,22 @@
+[
+  {
+    "type": "event",
+    "name": "Swap",
+    "inputs": [
+      { "name": "amount0", "type": "uint256", "indexed": false },
+      { "name": "amount1", "type": "uint256", "indexed": false },
+      { "name": "to", "type": "address", "indexed": true }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "swap",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      { "name": "amount0Out", "type": "uint256" },
+      { "name": "amount1Out", "type": "uint256" },
+      { "name": "to", "type": "address" }
+    ],
+    "outputs": []
+  }
+]

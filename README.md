@@ -94,9 +94,14 @@ eject path (canonical `graph build` compiles our output unmodified) with only
 Node; `run.sh all` deploys our subgraph alongside an idiomatic hand-written
 reference and store-diffs them at a fixed block.
 
-> **✅ Eject path proven.** `graph codegen` + `graph build` compile the generated
-> ERC-20 subgraph unmodified into WebAssembly (`build/Token/Token.wasm`). The
-> canonical toolchain accepts Redstart's output with zero manual edits.
+> **✅ Eject path proven — for the whole feature surface.** `graph codegen` +
+> `graph build` compile the generated subgraph unmodified into WebAssembly, with
+> zero manual edits. This now holds not just for the ERC-20 slice but for
+> [`examples/factory`](examples/factory) — a single project exercising **event,
+> call, and block handlers** (on a source *and* a template), **dynamic data
+> sources** (`createWithContext` + context), **control flow**, and an **enum**.
+> Run it yourself: `./conformance/run.sh build PROJECT=examples/factory`.
+> (Finding the template-import-path bug this caught is exactly why the gate exists.)
 
 ## Try it
 

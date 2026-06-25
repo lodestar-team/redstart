@@ -1,0 +1,4 @@
+[project]
+name = "factory"
+entry = "src/main.red"
+description = "Factory + pair-template subgraph exercising every handler kind, control flow, and enums."
