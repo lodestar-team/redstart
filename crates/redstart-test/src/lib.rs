@@ -102,6 +102,8 @@ struct Interp<'t> {
     source_addr: HashMap<String, Vec<u8>>,
     /// known ABI names (for `Abi.bind`).
     abis: Vec<String>,
+    /// declared template names (dynamic data sources).
+    templates: std::collections::HashSet<String>,
 }
 
 /// A mocked contract-call outcome.
@@ -114,6 +116,8 @@ enum Mock {
 struct World {
     store: HashMap<(String, Vec<u8>), BTreeMap<String, Value>>,
     mocks: HashMap<String, Mock>,
+    /// Dynamic data sources spawned via `<Template>.create(addr)`.
+    created: Vec<(String, Vec<u8>)>,
 }
 
 /// A lexical frame (test body or one handler invocation).
@@ -151,10 +155,14 @@ impl<'t> Interp<'t> {
         let mut block_handlers: HashMap<String, Vec<&HandlerDecl>> = HashMap::new();
         let mut source_addr = HashMap::new();
         let mut abis = Vec::new();
+        let mut templates = std::collections::HashSet::new();
 
         for m in tree.ordered() {
             for a in &m.program.abis {
                 abis.push(a.name.name.clone());
+            }
+            for t in &m.program.templates {
+                templates.insert(t.name.name.clone());
             }
             for h in &m.program.handlers {
                 match h.kind {
@@ -177,6 +185,7 @@ impl<'t> Interp<'t> {
             block_handlers,
             source_addr,
             abis,
+            templates,
         }
     }
 
@@ -184,6 +193,7 @@ impl<'t> Interp<'t> {
         let mut world = World {
             store: HashMap::new(),
             mocks: HashMap::new(),
+            created: Vec::new(),
         };
         let mut frame = Frame {
             locals: HashMap::new(),
@@ -334,6 +344,7 @@ impl<'t> Interp<'t> {
                     "mockRevert" => return self.do_mock(args, world, frame, true, span),
                     "assert" => return self.do_assert(args, world, frame, span),
                     "assertEq" => return self.do_assert_eq(args, world, frame, span),
+                    "assertCreated" => return self.do_assert_created(args, world, frame, span),
                     _ => {}
                 }
             }
@@ -471,6 +482,23 @@ impl<'t> Interp<'t> {
                 format!("assertEq failed: left = {}, right = {}", a.canonical(), b.canonical()),
                 Some(span.clone()),
             )
+        }
+    }
+
+    /// `assertCreated(Template, addr)` — assert a dynamic data source was spawned.
+    fn do_assert_created(&self, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
+        let tmpl = args
+            .first()
+            .and_then(single_path)
+            .ok_or_else(|| TError { message: "assertCreated needs a template name and an address".into(), span: Some(span.clone()) })?;
+        let addr = self
+            .eval(args.get(1).ok_or_else(|| TError { message: "assertCreated needs an address".into(), span: Some(span.clone()) })?, world, frame)?
+            .as_bytes()
+            .ok_or_else(|| TError { message: "assertCreated address must be Bytes/Address".into(), span: Some(span.clone()) })?;
+        if world.created.iter().any(|(t, a)| t == &tmpl && a == &addr) {
+            Ok(())
+        } else {
+            err(format!("assertCreated failed: no `{tmpl}` data source created at 0x{}", hex(&addr)), Some(span.clone()))
         }
     }
 
@@ -736,6 +764,23 @@ impl<'t> Interp<'t> {
                 }
             }
 
+            // `DataSourceContext.new()` -> an opaque context bag (test stub).
+            if field.name == "new" && single_path(base).as_deref() == Some("DataSourceContext") {
+                return Ok(Value::Unit);
+            }
+
+            // `<Template>.create(addr)` / `.createWithContext(addr, ctx)` spawns a
+            // dynamic data source — record it; it is NOT an entity write.
+            if let Some(name) = single_path(base) {
+                if self.templates.contains(&name)
+                    && matches!(field.name.as_str(), "create" | "createWithContext")
+                {
+                    let id = self.eval_id(args, world, frame, span)?;
+                    world.created.push((name, id));
+                    return Ok(Value::Unit);
+                }
+            }
+
             // Entity constructors / accessors. The base (`Account`,
             // `accounts::Account`) is a namespace, NOT a value — match it before
             // evaluating, or `Account` looks like an unknown identifier.
@@ -764,6 +809,11 @@ impl<'t> Interp<'t> {
                     Some(Mock::Revert) => Ok(Value::Result { reverted: true, value: Box::new(Value::Null) }),
                     None => err(format!("unmocked contract call `{key}` — add `mockCall({key}, …)`"), Some(span.clone())),
                 };
+            }
+
+            // `DataSourceContext` setters on the opaque context stub are no-ops.
+            if matches!(bv, Value::Unit) && field.name.starts_with("set") {
+                return Ok(Value::Unit);
             }
 
             // Value methods.

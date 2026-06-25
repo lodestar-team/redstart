@@ -96,6 +96,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
         let mut env = Env {
             entities: checked.entities.clone(),
             source_abi: checked.source_abi.clone(),
+            templates: templates.iter().map(|t| t.name.name.clone()).collect(),
             abis: &mut checked.abis,
         };
         mappings::render(&handlers, &entity_names, &mut env)
@@ -319,6 +320,36 @@ handler block Token(block) every 100 {
         assert!(m.contains("snap.total = block.number"));
         assert!(m.contains("import { TransferCall } from \"../generated/Token/ERC20\""));
         assert!(m.contains("ethereum"));
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
+
+    #[test]
+    fn template_instantiation_lowers_and_imports() {
+        let gen = build(
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Pair { id: Id<Bytes> }
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+template PairTemplate {
+  abi: ERC20
+  network: mainnet
+}
+handler on Token.Transfer(event) {
+  PairTemplate.create(event.params.to)
+}
+"#,
+            TRANSFER_ABI,
+        );
+        assert!(gen.manifest.contains("templates:"), "manifest:\n{}", gen.manifest);
+        assert!(gen.manifest.contains("name: PairTemplate"));
+        let m = &gen.mappings;
+        assert!(m.contains("PairTemplate.create(event.params.to)"), "got:\n{m}");
+        assert!(m.contains("import { PairTemplate } from \"../generated/templates\""), "got:\n{m}");
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
 }

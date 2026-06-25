@@ -53,9 +53,15 @@ handler on Token.Approval(event) {
 
 entity Snapshot { id: Id<Bytes> total: BigInt }
 
+template PoolTemplate {
+  abi: ERC20
+  network: mainnet
+}
+
 handler call Token.transfer(call) {
   let acct = Account.loadOrCreate(call.inputs.to, { balance: BigInt.zero })
   acct.balance = acct.balance + call.inputs.amount
+  PoolTemplate.create(call.inputs.to)
 }
 
 handler block Token(block) {
@@ -234,6 +240,19 @@ fn call_handler_reads_inputs() {
 test "call handler credits via inputs" {
   Token.transfer({ to: 0x07, amount: 250 })
   assertEq(Account.at(0x07).balance, 250)
+}
+"#,
+    );
+    assert!(out[0].1, "expected pass, got: {}", out[0].2);
+}
+
+#[test]
+fn template_create_is_recorded() {
+    let out = outcomes(
+        r#"
+test "call handler spawns a pool data source" {
+  Token.transfer({ to: 0x09, amount: 1 })
+  assertCreated(PoolTemplate, 0x09)
 }
 "#,
     );

@@ -72,7 +72,7 @@ fn render_imports(
         .iter()
         .any(|h| matches!(h.kind, HandlerKind::Block(_)))
         || body.contains("ethereum.");
-    let mut gts: Vec<&str> = ["BigInt", "BigDecimal", "Bytes", "Address"]
+    let mut gts: Vec<&str> = ["BigInt", "BigDecimal", "Bytes", "Address", "DataSourceContext"]
         .into_iter()
         .filter(|ty| body.contains(ty))
         .collect();
@@ -121,6 +121,26 @@ fn render_imports(
         out.push_str(&format!(
             "import {{ {} }} from \"../generated/{source}/{abi}\"\n",
             specifiers.join(", ")
+        ));
+    }
+
+    // Template imports from the generated `templates` module — any template the
+    // handlers instantiate via `<Name>.create(...)` / `.createWithContext(...)`.
+    let mut used_templates: Vec<&String> = env
+        .templates
+        .iter()
+        .filter(|t| {
+            body.contains(&format!("{t}.create("))
+                || body.contains(&format!("{t}.createWithContext("))
+        })
+        .collect();
+    used_templates.sort_unstable();
+    used_templates.dedup();
+    if !used_templates.is_empty() {
+        let names: Vec<String> = used_templates.iter().map(|t| (*t).clone()).collect();
+        out.push_str(&format!(
+            "import {{ {} }} from \"../generated/templates\"\n",
+            names.join(", ")
         ));
     }
 

@@ -76,6 +76,7 @@ good in the lineage of Matchstick, not a venture bet.
 | AssemblyScript mapping lowering — `loadOrCreate`, `BigInt`/`BigDecimal` operators, auto-save dirty-tracking, contract calls (`Result` → `try_*`), `match` | `redstart-codegen` | ✅ vertical slice (ERC-20) |
 | Control flow — `if`/`else if`/`else`, `while`, `for` (numeric ranges + list iteration), array literals & indexing, lowered to native AssemblyScript | `redstart-codegen` | ✅ working |
 | Handler kinds — event (`handler on Src.Event`), call (`handler call Src.fn`), and block (`handler block Src [every N\|once]`) → `eventHandlers`/`callHandlers`/`blockHandlers` | `redstart-codegen` | ✅ working |
+| Dynamic data sources — `template` blocks + `<Template>.create(addr)` / `.createWithContext(addr, ctx)` and `DataSourceContext`, the factory pattern | `redstart-codegen` | ✅ working |
 | Semantic checker — unknown source/event/type, missing source settings, `derived` back-refs, required-field init, `.value`-without-`match`, arithmetic-on-`Option`, assign-to-`derived` | `redstart-checker` | ✅ working |
 | `redstart test` — native test interpreter (mock store + mocked calls, no WASM/Docker/Matchstick) | `redstart-test` | ✅ working |
 | `redstart fmt` — canonical, comment-preserving formatting (`--check` mode) | `redstart-cli` | ✅ working |

@@ -33,6 +33,8 @@ pub struct Env<'a> {
     pub entities: HashMap<String, EntityInfo>,
     /// Source/template name -> ABI name.
     pub source_abi: HashMap<String, String>,
+    /// Declared template names (dynamic data sources).
+    pub templates: Vec<String>,
     /// ABI access for event-parameter and function-return types.
     pub abis: &'a mut AbiIndex,
 }
@@ -604,6 +606,14 @@ fn lower_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> St
 
 fn lower_call(callee: &Expr, args: &[Expr], env: &mut Env, scope: &mut Scope) -> String {
     if let Expr::Field { base, field, .. } = callee {
+        // `DataSourceContext.new()` -> `new DataSourceContext()` (AS construction).
+        if field.name == "new" {
+            if let Expr::Path { segments, .. } = base.as_ref() {
+                if segments.len() == 1 && segments[0].name == "DataSourceContext" {
+                    return "new DataSourceContext()".to_string();
+                }
+            }
+        }
         // Contract call: `<contract>.method(args)` -> `<contract>.try_method(args)`.
         if let RTy::Contract(abi) = infer(base, env, scope) {
             if env.abis.is_function(&abi, &field.name) {
