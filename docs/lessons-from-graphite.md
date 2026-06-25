@@ -58,8 +58,10 @@ but the generated AS, which keeps working. graphite had no such exit.
 
 Features graphite supported that Redstart's grammar/codegen doesn't yet:
 
-- **Call handlers** (`callHandlers` / `function: balanceOf(address)`).
-- **Block handlers** (`blockHandlers` with polling filters).
+- ~~**Call handlers** (`callHandlers` / `function: balanceOf(address)`).~~ ✅ done —
+  `handler call Src.fn(call)`, with ABI-typed `call.inputs.*` / `call.outputs.*`.
+- ~~**Block handlers** (`blockHandlers` with polling filters).~~ ✅ done —
+  `handler block Src(block) [every N | once]`.
 - **File data sources** (IPFS/Arweave).
 - **Transaction receipt context** (`receipt: true`).
 - **`redstart deploy`** — wrap `graph deploy` to Studio (graphite had `deploy`).

@@ -272,4 +272,53 @@ handler on Token.Transfer(event) {
         assert!(m.contains("for (let i = 0; i < 3; i++) {"), "got:\n{m}");
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
+
+    const FN_ABI: &str = r#"[
+      {"type":"function","name":"transfer","stateMutability":"nonpayable",
+        "inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],
+        "outputs":[{"name":"success","type":"bool"}]}
+    ]"#;
+
+    #[test]
+    fn call_and_block_handlers_lower_and_manifest() {
+        let gen = build(
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Account { id: Id<Bytes> balance: BigInt }
+entity Snapshot { id: Id<Bytes> total: BigInt }
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+handler call Token.transfer(call) {
+  let acct = Account.loadOrCreate(call.inputs.to, { balance: BigInt.zero })
+  acct.balance = acct.balance + call.inputs.amount
+}
+handler block Token(block) every 100 {
+  let snap = Snapshot.create(block.hash, { total: BigInt.zero })
+  snap.total = block.number
+}
+"#,
+            FN_ABI,
+        );
+        // Manifest: callHandlers + blockHandlers with filter.
+        assert!(gen.manifest.contains("callHandlers:"), "manifest:\n{}", gen.manifest);
+        assert!(gen.manifest.contains("function: transfer(address,uint256)"));
+        assert!(gen.manifest.contains("handler: handleTransferCall"));
+        assert!(gen.manifest.contains("blockHandlers:"));
+        assert!(gen.manifest.contains("handler: handleTokenBlock"));
+        assert!(gen.manifest.contains("kind: polling"));
+        assert!(gen.manifest.contains("every: 100"));
+        // Mappings: correct param types and member access.
+        let m = &gen.mappings;
+        assert!(m.contains("export function handleTransferCall(call: TransferCall): void"), "got:\n{m}");
+        assert!(m.contains("acct.balance.plus(call.inputs.amount)"));
+        assert!(m.contains("export function handleTokenBlock(block: ethereum.Block): void"));
+        assert!(m.contains("snap.total = block.number"));
+        assert!(m.contains("import { TransferCall } from \"../generated/Token/ERC20\""));
+        assert!(m.contains("ethereum"));
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
 }

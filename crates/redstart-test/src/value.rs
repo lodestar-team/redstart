@@ -21,6 +21,39 @@ pub struct EventVal {
     pub log_index: i64,
 }
 
+/// A synthesised function call passed to a call handler under test.
+#[derive(Clone, Debug)]
+pub struct CallVal {
+    /// Call input parameters (`call.inputs.X`).
+    pub inputs: BTreeMap<String, Value>,
+    /// Call output values (`call.outputs.Y`).
+    pub outputs: BTreeMap<String, Value>,
+    /// The contract address (`call.to` / metadata).
+    pub address: Vec<u8>,
+    /// `call.block.number`.
+    pub block_number: BigInt,
+    /// `call.block.timestamp`.
+    pub block_timestamp: BigInt,
+    /// `call.transaction.hash`.
+    pub tx_hash: Vec<u8>,
+}
+
+impl CallVal {
+    /// Project the call's chain metadata into an [`EventVal`] so the existing
+    /// `block`/`transaction` accessors can be reused.
+    #[must_use]
+    pub fn meta(&self) -> EventVal {
+        EventVal {
+            params: BTreeMap::new(),
+            address: self.address.clone(),
+            block_number: self.block_number.clone(),
+            block_timestamp: self.block_timestamp.clone(),
+            tx_hash: self.tx_hash.clone(),
+            log_index: 0,
+        }
+    }
+}
+
 /// A runtime value.
 #[derive(Clone, Debug)]
 pub enum Value {
@@ -61,6 +94,12 @@ pub enum Value {
     EventBlock(Box<EventVal>),
     /// `event.transaction`.
     EventTx(Box<EventVal>),
+    /// The handler call object (call handler).
+    Call(Box<CallVal>),
+    /// `call.inputs`.
+    CallInputs(Box<CallVal>),
+    /// `call.outputs`.
+    CallOutputs(Box<CallVal>),
     /// A statement with no value.
     Unit,
 }
@@ -128,6 +167,7 @@ impl Value {
             Value::Event(_) | Value::EventParams(_) | Value::EventBlock(_) | Value::EventTx(_) => {
                 "<event>".to_string()
             }
+            Value::Call(_) | Value::CallInputs(_) | Value::CallOutputs(_) => "<call>".to_string(),
             Value::Unit => "()".to_string(),
         }
     }

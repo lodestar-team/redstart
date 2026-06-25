@@ -391,22 +391,98 @@ impl<'t> Parser<'t> {
     fn parse_handler(&mut self) -> PResult<HandlerDecl> {
         let start = self.cur_start();
         self.expect(Token::KwHandler, "to begin a handler")?;
-        self.expect(Token::KwOn, "after `handler`")
-            .map_err(|e| e.with_help("handlers look like `handler on Source.Event(event) { ... }`"))?;
-        let source = self.expect_ident("for the source name")?;
-        self.expect(Token::Dot, "between the source and event")?;
-        let event = self.expect_ident("for the event name")?;
+
+        // The trigger kind is selected by a contextual keyword after `handler`:
+        //   `handler on Source.Event(event)`        — event handler
+        //   `handler call Source.function(call)`    — call handler
+        //   `handler block Source(block) [filter]`  — block handler
+        match self.peek_kind() {
+            Some(Token::KwOn) => {
+                self.bump();
+                let source = self.expect_ident("for the source name")?;
+                self.expect(Token::Dot, "between the source and event")?;
+                let event = self.expect_ident("for the event name")?;
+                let param = self.parse_handler_param()?;
+                let body = self.parse_block()?;
+                Ok(HandlerDecl {
+                    kind: HandlerKind::Event,
+                    source,
+                    event,
+                    param,
+                    body,
+                    span: self.span_from(start),
+                })
+            }
+            Some(Token::Ident) if self.peek_text_is("call") => {
+                self.bump();
+                let source = self.expect_ident("for the source name")?;
+                self.expect(Token::Dot, "between the source and function")?;
+                let event = self.expect_ident("for the function name")?;
+                let param = self.parse_handler_param()?;
+                let body = self.parse_block()?;
+                Ok(HandlerDecl {
+                    kind: HandlerKind::Call,
+                    source,
+                    event,
+                    param,
+                    body,
+                    span: self.span_from(start),
+                })
+            }
+            Some(Token::Ident) if self.peek_text_is("block") => {
+                self.bump();
+                let source = self.expect_ident("for the source name")?;
+                let param = self.parse_handler_param()?;
+                let filter = self.parse_block_filter()?;
+                let body = self.parse_block()?;
+                Ok(HandlerDecl {
+                    kind: HandlerKind::Block(filter),
+                    event: source.clone(),
+                    source,
+                    param,
+                    body,
+                    span: self.span_from(start),
+                })
+            }
+            _ => Err(self
+                .err("expected a handler trigger", "unexpected token")
+                .with_help(
+                    "handlers look like `handler on Source.Event(event) { … }`, \
+                     `handler call Source.fn(call) { … }`, or `handler block Source(block) { … }`",
+                )),
+        }
+    }
+
+    /// Parse the `(param)` binding shared by all handler kinds.
+    fn parse_handler_param(&mut self) -> PResult<Ident> {
         self.expect(Token::LParen, "before the handler parameter")?;
         let param = self.expect_ident("for the handler parameter")?;
         self.expect(Token::RParen, "after the handler parameter")?;
-        let body = self.parse_block()?;
-        Ok(HandlerDecl {
-            source,
-            event,
-            param,
-            body,
-            span: self.span_from(start),
-        })
+        Ok(param)
+    }
+
+    /// Parse an optional block-handler filter: `every N` or `once`.
+    fn parse_block_filter(&mut self) -> PResult<BlockFilter> {
+        if self.peek_text_is("every") {
+            self.bump();
+            let n = self.expect(Token::IntLit, "for the polling interval")?;
+            let raw = self.text(&n).replace('_', "");
+            let every = raw.parse::<u64>().map_err(|_| {
+                self.err("polling interval must be a positive integer", "invalid interval")
+            })?;
+            Ok(BlockFilter::Polling(every))
+        } else if self.peek_text_is("once") {
+            self.bump();
+            Ok(BlockFilter::Once)
+        } else {
+            Ok(BlockFilter::Every)
+        }
+    }
+
+    /// Whether the current token is an identifier with the given text.
+    fn peek_text_is(&self, text: &str) -> bool {
+        self.peek()
+            .is_some_and(|sp| sp.token == Token::Ident && self.text(sp) == text)
     }
 
     fn parse_fn(&mut self, is_pub: bool) -> PResult<FnDecl> {
@@ -1154,6 +1230,26 @@ handler on C.Transfer(event) {
         };
         assert_eq!(*op, BinOp::Add);
         assert!(matches!(rhs.as_ref(), Expr::Binary { op: BinOp::Mul, .. }));
+    }
+
+    #[test]
+    fn parses_event_call_and_block_handlers() {
+        let p = parse_ok(
+            r#"
+handler on Token.Transfer(event) { }
+handler call Token.transfer(call) { }
+handler block Token(block) every 50 { }
+handler block Token(b2) once { }
+handler block Token(b3) { }
+"#,
+        );
+        assert_eq!(p.handlers.len(), 5);
+        assert_eq!(p.handlers[0].kind, HandlerKind::Event);
+        assert_eq!(p.handlers[1].kind, HandlerKind::Call);
+        assert_eq!(p.handlers[1].event.name, "transfer");
+        assert_eq!(p.handlers[2].kind, HandlerKind::Block(BlockFilter::Polling(50)));
+        assert_eq!(p.handlers[3].kind, HandlerKind::Block(BlockFilter::Once));
+        assert_eq!(p.handlers[4].kind, HandlerKind::Block(BlockFilter::Every));
     }
 
     #[test]

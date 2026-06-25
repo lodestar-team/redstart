@@ -6,7 +6,9 @@
 //! string-typed coupling that causes manifest/handler drift today is gone.
 
 use redstart_checker::AbiIndex;
-use redstart_parser::ast::{Expr, HandlerDecl, Setting, SourceDecl, TemplateDecl};
+use redstart_parser::ast::{
+    BlockFilter, Expr, HandlerDecl, HandlerKind, Setting, SourceDecl, TemplateDecl,
+};
 
 /// The spec version emitted. Redstart owns this so the developer never touches
 /// the `specVersion`/`apiVersion` compatibility matrix.
@@ -126,31 +128,81 @@ fn render_mapping(
         "        - name: {abi}\n          file: ./abis/{abi}.json\n"
     ));
 
-    out.push_str("      eventHandlers:\n");
-    for handler in input.handlers.iter().filter(|h| h.source.name == source_name) {
-        let handler_name = handler_fn_name(&handler.event.name);
-        let signature = abi_index
-            .event_signature(abi, &handler.event.name)
-            .unwrap_or_else(|| {
-                warnings.push(format!(
-                    "could not resolve signature for event `{}` in ABI `{abi}`; \
-                     emitted a placeholder",
-                    handler.event.name
-                ));
-                format!("{}(/* TODO: resolve from ABI */)", handler.event.name)
-            });
-        out.push_str(&format!(
-            "        - event: {signature}\n          handler: {handler_name}\n"
-        ));
+    let mine: Vec<&&HandlerDecl> = input
+        .handlers
+        .iter()
+        .filter(|h| h.source.name == source_name)
+        .collect();
+
+    // eventHandlers
+    let events: Vec<&&HandlerDecl> = mine.iter().filter(|h| h.kind == HandlerKind::Event).copied().collect();
+    if !events.is_empty() {
+        out.push_str("      eventHandlers:\n");
+        for handler in events {
+            let signature = abi_index
+                .event_signature(abi, &handler.event.name)
+                .unwrap_or_else(|| {
+                    warnings.push(format!(
+                        "could not resolve signature for event `{}` in ABI `{abi}`; \
+                         emitted a placeholder",
+                        handler.event.name
+                    ));
+                    format!("{}(/* TODO: resolve from ABI */)", handler.event.name)
+                });
+            out.push_str(&format!(
+                "        - event: {signature}\n          handler: {}\n",
+                handler.fn_name()
+            ));
+        }
+    }
+
+    // callHandlers
+    let calls: Vec<&&HandlerDecl> = mine.iter().filter(|h| h.kind == HandlerKind::Call).copied().collect();
+    if !calls.is_empty() {
+        out.push_str("      callHandlers:\n");
+        for handler in calls {
+            let signature = abi_index
+                .function_signature(abi, &handler.event.name)
+                .unwrap_or_else(|| {
+                    warnings.push(format!(
+                        "could not resolve signature for function `{}` in ABI `{abi}`; \
+                         emitted a placeholder",
+                        handler.event.name
+                    ));
+                    format!("{}(/* TODO: resolve from ABI */)", handler.event.name)
+                });
+            out.push_str(&format!(
+                "        - function: {signature}\n          handler: {}\n",
+                handler.fn_name()
+            ));
+        }
+    }
+
+    // blockHandlers
+    let blocks: Vec<&&HandlerDecl> = mine
+        .iter()
+        .filter(|h| matches!(h.kind, HandlerKind::Block(_)))
+        .copied()
+        .collect();
+    if !blocks.is_empty() {
+        out.push_str("      blockHandlers:\n");
+        for handler in blocks {
+            out.push_str(&format!("        - handler: {}\n", handler.fn_name()));
+            match &handler.kind {
+                HandlerKind::Block(BlockFilter::Polling(every)) => {
+                    out.push_str(&format!(
+                        "          filter:\n            kind: polling\n            every: {every}\n"
+                    ));
+                }
+                HandlerKind::Block(BlockFilter::Once) => {
+                    out.push_str("          filter:\n            kind: once\n");
+                }
+                _ => {}
+            }
+        }
     }
 
     out.push_str("      file: ./src/mappings.ts\n");
-}
-
-/// The AssemblyScript handler function name Redstart derives for an event.
-#[must_use]
-pub fn handler_fn_name(event: &str) -> String {
-    format!("handle{event}")
 }
 
 /// Render a setting value to a manifest string.

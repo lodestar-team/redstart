@@ -28,8 +28,8 @@ pub use diag::Diag;
 pub use ty::{is_scalar, resolve_type, sol_to_rty, EntityInfo, RTy};
 use redstart_loader::ModuleTree;
 use redstart_parser::ast::{
-    EntityDecl, Expr, FieldDecl, ForIter, HandlerDecl, MatchArm, Pattern, Setting, SourceDecl,
-    Stmt, TemplateDecl, TypeExpr,
+    EntityDecl, Expr, FieldDecl, ForIter, HandlerDecl, HandlerKind, MatchArm, Pattern, Setting,
+    SourceDecl, Stmt, TemplateDecl, TypeExpr,
 };
 use std::collections::HashMap;
 
@@ -325,32 +325,55 @@ fn check_handler(
         return;
     }
 
-    // The event must exist in the source's ABI (when the ABI is readable).
     let abi_name = source_abi.get(&h.source.name).cloned().unwrap_or_default();
-    if abis.readable(&abi_name) && abis.event_params(&abi_name, &h.event.name).is_none() {
-        diags.push(
-            Diag::new(file, &h.event.span, "E041", format!("event `{}` not found in ABI `{abi_name}`", h.event.name), "no such event")
-                .with_help("check the event name and casing against the ABI"),
-        );
-    }
 
-    // Resolve this handler's event params once for body inference.
-    let event_params: HashMap<String, RTy> = abis
-        .event_params(&abi_name, &h.event.name)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|p| (p.name, sol_to_rty(&p.sol_type)))
-        .collect();
+    // Resolve the handler's trigger members and the type of its parameter.
+    let (param_ty, params, outputs) = match h.kind {
+        HandlerKind::Event => {
+            if abis.readable(&abi_name) && abis.event_params(&abi_name, &h.event.name).is_none() {
+                diags.push(
+                    Diag::new(file, &h.event.span, "E041", format!("event `{}` not found in ABI `{abi_name}`", h.event.name), "no such event")
+                        .with_help("check the event name and casing against the ABI"),
+                );
+            }
+            (RTy::Event, rty_map(abis.event_params(&abi_name, &h.event.name)), HashMap::new())
+        }
+        HandlerKind::Call => {
+            if abis.readable(&abi_name) && abis.function_inputs(&abi_name, &h.event.name).is_none() {
+                diags.push(
+                    Diag::new(file, &h.event.span, "E042", format!("function `{}` not found in ABI `{abi_name}`", h.event.name), "no such function")
+                        .with_help("call handlers bind a contract function by name — check it against the ABI"),
+                );
+            }
+            (
+                RTy::Call,
+                rty_map(abis.function_inputs(&abi_name, &h.event.name)),
+                rty_map(abis.function_output_params(&abi_name, &h.event.name)),
+            )
+        }
+        HandlerKind::Block(_) => (RTy::Block, HashMap::new(), HashMap::new()),
+    };
 
     let ctx = BodyCtx {
         entities,
         meta,
         event_param: h.param.name.clone(),
-        event_params,
+        param_ty,
+        event_params: params,
+        call_outputs: outputs,
         abis,
     };
     let mut locals: HashMap<String, RTy> = HashMap::new();
     check_block(&h.body.stmts, &ctx, &mut locals, file, diags);
+}
+
+/// Convert an optional ABI parameter list into a name → resolved-type map.
+fn rty_map(params: Option<Vec<EventParam>>) -> HashMap<String, RTy> {
+    params
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| (p.name, sol_to_rty(&p.sol_type)))
+        .collect()
 }
 
 // ---- handler body checks ----
@@ -359,7 +382,12 @@ struct BodyCtx<'a> {
     entities: &'a HashMap<String, EntityInfo>,
     meta: &'a HashMap<String, EntityMeta>,
     event_param: String,
+    /// The resolved type of the handler parameter (Event / Call / Block).
+    param_ty: RTy,
+    /// Event params (event handler) or function inputs (call handler).
     event_params: HashMap<String, RTy>,
+    /// Function outputs (call handler only).
+    call_outputs: HashMap<String, RTy>,
     abis: &'a AbiIndex,
 }
 
@@ -680,7 +708,7 @@ fn infer(expr: &Expr, ctx: &BodyCtx, locals: &HashMap<String, RTy>) -> RTy {
         Expr::Path { segments, .. } => {
             if segments.len() == 1 {
                 if segments[0].name == ctx.event_param {
-                    return RTy::Event;
+                    return ctx.param_ty.clone();
                 }
                 if let Some(t) = locals.get(&segments[0].name) {
                     return t.clone();
@@ -722,6 +750,16 @@ fn infer_field(base: &Expr, field: &str, ctx: &BodyCtx, locals: &HashMap<String,
             _ => RTy::Unknown,
         },
         RTy::Params => ctx.event_params.get(field).cloned().unwrap_or(RTy::Unknown),
+        RTy::Call => match field {
+            "inputs" => RTy::CallInputs,
+            "outputs" => RTy::CallOutputs,
+            "block" => RTy::Block,
+            "transaction" => RTy::Transaction,
+            "from" | "to" => RTy::Address,
+            _ => RTy::Unknown,
+        },
+        RTy::CallInputs => ctx.event_params.get(field).cloned().unwrap_or(RTy::Unknown),
+        RTy::CallOutputs => ctx.call_outputs.get(field).cloned().unwrap_or(RTy::Unknown),
         RTy::Block => match field {
             "timestamp" | "number" => RTy::BigInt,
             "hash" => RTy::Bytes,

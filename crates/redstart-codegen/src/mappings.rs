@@ -6,8 +6,28 @@
 //! output from `../generated/...`.
 
 use crate::lower::{lower_handler, Env};
-use redstart_parser::ast::HandlerDecl;
+use redstart_parser::ast::{HandlerDecl, HandlerKind};
 use std::collections::BTreeMap;
+
+/// The AssemblyScript class name for a call handler's `call` parameter
+/// (`graph codegen` emits `<Capitalized>Call`).
+fn call_class(handler: &HandlerDecl) -> String {
+    let f = &handler.event.name;
+    let mut chars = f.chars();
+    let cap = chars
+        .next()
+        .map_or_else(String::new, |c| c.to_uppercase().collect::<String>() + chars.as_str());
+    format!("{cap}Call")
+}
+
+/// The parameter type annotation for a handler's binding.
+fn param_type(handler: &HandlerDecl) -> String {
+    match handler.kind {
+        HandlerKind::Event => format!("{}Event", handler.event.name),
+        HandlerKind::Call => call_class(handler),
+        HandlerKind::Block(_) => "ethereum.Block".to_string(),
+    }
+}
 
 /// Render `mappings.ts` for all handlers. Returns the source and any warnings.
 pub fn render(handlers: &[&HandlerDecl], entity_names: &[String], env: &mut Env) -> (String, Vec<String>) {
@@ -19,10 +39,11 @@ pub fn render(handlers: &[&HandlerDecl], entity_names: &[String], env: &mut Env)
     for handler in handlers {
         let (body, mut warns) = lower_handler(handler, env);
         warnings.append(&mut warns);
-        let event_ty = format!("{}Event", handler.event.name);
-        let fn_name = format!("handle{}", handler.event.name);
+        let pty = param_type(handler);
+        let fn_name = handler.fn_name();
+        let param = &handler.param.name;
         functions.push_str(&format!(
-            "export function {fn_name}(event: {event_ty}): void {{\n{body}}}\n\n"
+            "export function {fn_name}({param}: {pty}): void {{\n{body}}}\n\n"
         ));
     }
 
@@ -45,11 +66,19 @@ fn render_imports(
 ) -> String {
     let mut out = String::new();
 
-    // graph-ts scalar imports, only those actually referenced.
+    // graph-ts imports, only those actually referenced. `ethereum` is needed
+    // when a block handler takes an `ethereum.Block` parameter.
+    let needs_ethereum = handlers
+        .iter()
+        .any(|h| matches!(h.kind, HandlerKind::Block(_)))
+        || body.contains("ethereum.");
     let mut gts: Vec<&str> = ["BigInt", "BigDecimal", "Bytes", "Address"]
         .into_iter()
         .filter(|ty| body.contains(ty))
         .collect();
+    if needs_ethereum {
+        gts.push("ethereum");
+    }
     gts.sort_unstable();
     if !gts.is_empty() {
         out.push_str(&format!(
@@ -58,8 +87,10 @@ fn render_imports(
         ));
     }
 
-    // Event imports, grouped by (source, abi) module, aliased to avoid clashing
-    // with an entity of the same name (e.g. a `Transfer` entity AND event).
+    // Generated-module imports, grouped by (source, abi). Event handlers import
+    // the event class aliased (`Transfer as TransferEvent`) to avoid clashing
+    // with an entity of the same name; call handlers import the `<Fn>Call`
+    // class unaliased; block handlers import nothing from here.
     let mut by_module: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for handler in handlers {
         let abi = env
@@ -67,22 +98,25 @@ fn render_imports(
             .get(&handler.source.name)
             .cloned()
             .unwrap_or_else(|| "Contract".to_string());
-        by_module
+        let entry = by_module
             .entry((handler.source.name.clone(), abi))
-            .or_default()
-            .push(handler.event.name.clone());
+            .or_default();
+        match handler.kind {
+            HandlerKind::Event => entry.push(format!("{e} as {e}Event", e = handler.event.name)),
+            HandlerKind::Call => entry.push(call_class(handler)),
+            HandlerKind::Block(_) => {}
+        }
     }
-    for ((source, abi), mut events) in by_module {
-        events.sort_unstable();
-        events.dedup();
-        let mut specifiers: Vec<String> = events
-            .iter()
-            .map(|e| format!("{e} as {e}Event"))
-            .collect();
+    for ((source, abi), mut specifiers) in by_module {
+        specifiers.sort_unstable();
+        specifiers.dedup();
         // If a handler binds the contract for a read call, import the contract
-        // class (unaliased) from the same generated module.
+        // class (unaliased) first — it reads naturally before the trigger types.
         if body.contains(&format!("{abi}.bind(")) {
             specifiers.insert(0, abi.clone());
+        }
+        if specifiers.is_empty() {
+            continue;
         }
         out.push_str(&format!(
             "import {{ {} }} from \"../generated/{source}/{abi}\"\n",

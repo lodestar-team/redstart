@@ -20,13 +20,13 @@
 
 mod value;
 
-pub use value::{EventVal, Value};
+pub use value::{CallVal, EventVal, Value};
 
 use bigdecimal::BigDecimal;
 use num_bigint::BigInt;
 use redstart_checker::Checked;
 use redstart_loader::ModuleTree;
-use redstart_parser::ast::{BinOp, Block, Expr, ForIter, HandlerDecl, Stmt, UnOp};
+use redstart_parser::ast::{BinOp, Block, Expr, ForIter, HandlerDecl, HandlerKind, Stmt, UnOp};
 use redstart_parser::Span;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
@@ -94,8 +94,10 @@ pub fn run_tests(tree: &ModuleTree, _checked: &Checked) -> TestReport {
 // ---- interpreter ----
 
 struct Interp<'t> {
-    /// (source, event) -> handler.
+    /// (source, event-or-function) -> event/call handler.
     handlers: HashMap<(String, String), &'t HandlerDecl>,
+    /// source -> its block handlers.
+    block_handlers: HashMap<String, Vec<&'t HandlerDecl>>,
     /// source/template name -> address bytes.
     source_addr: HashMap<String, Vec<u8>>,
     /// known ABI names (for `Abi.bind`).
@@ -146,6 +148,7 @@ type R<T> = Result<T, TError>;
 impl<'t> Interp<'t> {
     fn build(tree: &'t ModuleTree) -> Self {
         let mut handlers = HashMap::new();
+        let mut block_handlers: HashMap<String, Vec<&HandlerDecl>> = HashMap::new();
         let mut source_addr = HashMap::new();
         let mut abis = Vec::new();
 
@@ -154,7 +157,14 @@ impl<'t> Interp<'t> {
                 abis.push(a.name.name.clone());
             }
             for h in &m.program.handlers {
-                handlers.insert((h.source.name.clone(), h.event.name.clone()), h);
+                match h.kind {
+                    HandlerKind::Block(_) => {
+                        block_handlers.entry(h.source.name.clone()).or_default().push(h);
+                    }
+                    HandlerKind::Event | HandlerKind::Call => {
+                        handlers.insert((h.source.name.clone(), h.event.name.clone()), h);
+                    }
+                }
             }
             for s in &m.program.sources {
                 if let Some(addr) = setting_addr(&s.settings) {
@@ -164,6 +174,7 @@ impl<'t> Interp<'t> {
         }
         Self {
             handlers,
+            block_handlers,
             source_addr,
             abis,
         }
@@ -328,8 +339,15 @@ impl<'t> Interp<'t> {
             }
             if let Expr::Field { base, field, .. } = callee.as_ref() {
                 if let Some(src) = single_path(base) {
-                    if self.handlers.contains_key(&(src.clone(), field.name.clone())) {
-                        return self.fire(&src, &field.name, args, world, frame, span);
+                    // `Source.block({ … })` fires that source's block handlers.
+                    if field.name == "block" && self.block_handlers.contains_key(&src) {
+                        return self.fire_block(&src, args, world, frame, span);
+                    }
+                    if let Some(h) = self.handlers.get(&(src.clone(), field.name.clone())).copied() {
+                        return match h.kind {
+                            HandlerKind::Call => self.fire_call(h, args, world, frame, span),
+                            _ => self.fire(&src, &field.name, args, world, frame, span),
+                        };
                     }
                 }
             }
@@ -500,6 +518,84 @@ impl<'t> Interp<'t> {
         Ok(())
     }
 
+    /// Fire a source's block handlers with a synthesised `ethereum.Block`.
+    fn fire_block(&self, source: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
+        let mut ev = EventVal {
+            params: BTreeMap::new(),
+            address: self.source_addr.get(source).cloned().unwrap_or_default(),
+            block_number: BigInt::from(0),
+            block_timestamp: BigInt::from(0),
+            tx_hash: vec![0u8; 32],
+            log_index: 0,
+        };
+        if let Some(Expr::Record { fields, .. }) = args.first() {
+            for (k, vexpr) in fields {
+                let v = self.eval(vexpr, world, frame)?;
+                match k.name.as_str() {
+                    "_block" | "number" => ev.block_number = v.to_bigint().unwrap_or_default(),
+                    "_timestamp" | "timestamp" => ev.block_timestamp = v.to_bigint().unwrap_or_default(),
+                    "_address" => ev.address = v.as_bytes().unwrap_or_default(),
+                    _ => {}
+                }
+            }
+        }
+        let handlers = self.block_handlers.get(source).cloned().unwrap_or_default();
+        if handlers.is_empty() {
+            return err(format!("no block handler for `{source}`"), Some(span.clone()));
+        }
+        for handler in handlers {
+            let mut hframe = Frame {
+                locals: HashMap::from([(handler.param.name.clone(), Value::EventBlock(Box::new(ev.clone())))]),
+                working: Vec::new(),
+                returned: false,
+            };
+            self.exec_block(&handler.body, world, &mut hframe)?;
+            flush(&hframe, world);
+        }
+        Ok(())
+    }
+
+    /// Fire a call handler with a synthesised call object. Record keys populate
+    /// `call.inputs`; `_out_<name>` keys populate `call.outputs`; `_block` /
+    /// `_timestamp` / `_address` / `_txHash` set chain metadata.
+    fn fire_call(&self, handler: &HandlerDecl, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
+        let mut call = CallVal {
+            inputs: BTreeMap::new(),
+            outputs: BTreeMap::new(),
+            address: self.source_addr.get(&handler.source.name).cloned().unwrap_or_default(),
+            block_number: BigInt::from(0),
+            block_timestamp: BigInt::from(0),
+            tx_hash: vec![0u8; 32],
+        };
+        if let Some(Expr::Record { fields, .. }) = args.first() {
+            for (k, vexpr) in fields {
+                let v = self.eval(vexpr, world, frame)?;
+                match k.name.as_str() {
+                    "_block" => call.block_number = v.to_bigint().unwrap_or_default(),
+                    "_timestamp" => call.block_timestamp = v.to_bigint().unwrap_or_default(),
+                    "_address" => call.address = v.as_bytes().unwrap_or_default(),
+                    "_txHash" => call.tx_hash = v.as_bytes().unwrap_or_else(|| vec![0u8; 32]),
+                    other => {
+                        if let Some(out) = other.strip_prefix("_out_") {
+                            call.outputs.insert(out.to_string(), v);
+                        } else {
+                            call.inputs.insert(other.to_string(), v);
+                        }
+                    }
+                }
+            }
+        }
+        let mut hframe = Frame {
+            locals: HashMap::from([(handler.param.name.clone(), Value::Call(Box::new(call)))]),
+            working: Vec::new(),
+            returned: false,
+        };
+        let _ = span;
+        self.exec_block(&handler.body, world, &mut hframe)?;
+        flush(&hframe, world);
+        Ok(())
+    }
+
     // ---- expression evaluation ----
 
     fn eval(&self, e: &Expr, world: &mut World, frame: &mut Frame) -> R<Value> {
@@ -589,12 +685,31 @@ impl<'t> Interp<'t> {
             Value::EventBlock(ev) => match field {
                 "timestamp" => Ok(Value::Big(ev.block_timestamp)),
                 "number" => Ok(Value::Big(ev.block_number)),
+                "hash" => Ok(Value::Bytes(vec![0u8; 32])),
                 _ => err(format!("block has no field `{field}`"), Some(span.clone())),
             },
             Value::EventTx(ev) => match field {
                 "hash" => Ok(Value::Bytes(ev.tx_hash)),
                 _ => err(format!("transaction has no field `{field}`"), Some(span.clone())),
             },
+            Value::Call(c) => match field {
+                "inputs" => Ok(Value::CallInputs(c)),
+                "outputs" => Ok(Value::CallOutputs(c)),
+                "block" => Ok(Value::EventBlock(Box::new(c.meta()))),
+                "transaction" => Ok(Value::EventTx(Box::new(c.meta()))),
+                "to" | "from" | "address" => Ok(Value::Bytes(c.address)),
+                _ => err(format!("call has no field `{field}`"), Some(span.clone())),
+            },
+            Value::CallInputs(c) => c
+                .inputs
+                .get(field)
+                .cloned()
+                .ok_or_else(|| TError { message: format!("call has no input `{field}`"), span: Some(span.clone()) }),
+            Value::CallOutputs(c) => c
+                .outputs
+                .get(field)
+                .cloned()
+                .ok_or_else(|| TError { message: format!("call has no output `{field}`"), span: Some(span.clone()) }),
             Value::Array(ref items) => match field {
                 "length" => Ok(Value::Int(items.len() as i64)),
                 _ => err(format!("array has no field `{field}`"), Some(span.clone())),

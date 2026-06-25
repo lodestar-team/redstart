@@ -78,6 +78,62 @@ impl AbiIndex {
         self.function_outputs(abi_name, name).is_some()
     }
 
+    /// The decoded input parameters of function `name` in ABI `abi_name`.
+    pub fn function_inputs(&self, abi_name: &str, name: &str) -> Option<Vec<EventParam>> {
+        self.read_function_params(abi_name, name, "inputs")
+    }
+
+    /// The decoded output parameters of function `name` in ABI `abi_name`.
+    pub fn function_output_params(&self, abi_name: &str, name: &str) -> Option<Vec<EventParam>> {
+        self.read_function_params(abi_name, name, "outputs")
+    }
+
+    /// The canonical call-handler signature for the manifest, e.g.
+    /// `transfer(address,uint256)` — canonical types, never `indexed`.
+    pub fn function_signature(&self, abi_name: &str, name: &str) -> Option<String> {
+        let inputs = self.function_inputs(abi_name, name)?;
+        let types: Vec<String> = inputs.iter().map(|p| p.sol_type.clone()).collect();
+        Some(format!("{name}({})", types.join(",")))
+    }
+
+    fn read_function_params(&self, abi_name: &str, name: &str, which: &str) -> Option<Vec<EventParam>> {
+        let path = self.paths.get(abi_name)?;
+        let text = std::fs::read_to_string(path).ok()?;
+        let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+        for item in json.as_array()? {
+            if item.get("type").and_then(|t| t.as_str()) != Some("function") {
+                continue;
+            }
+            if item.get("name").and_then(|n| n.as_str()) != Some(name) {
+                continue;
+            }
+            let params = item.get(which).and_then(|i| i.as_array())?;
+            return Some(
+                params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, inp)| EventParam {
+                        name: inp
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map_or_else(
+                                || if which == "outputs" { format!("value{i}") } else { format!("param{i}") },
+                                str::to_string,
+                            ),
+                        sol_type: inp
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("bytes")
+                            .to_string(),
+                        indexed: false,
+                    })
+                    .collect(),
+            );
+        }
+        None
+    }
+
     /// The Solidity output types of function `name` in ABI `abi_name`, if any.
     pub fn function_outputs(&self, abi_name: &str, name: &str) -> Option<Vec<String>> {
         let path = self.paths.get(abi_name)?;

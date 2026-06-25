@@ -121,19 +121,65 @@ pub struct Setting {
     pub span: Span,
 }
 
-/// `handler on Source.Event(param) { body }`
+/// `handler on Source.Event(param) { body }` and its call/block variants.
 #[derive(Debug, Clone)]
 pub struct HandlerDecl {
-    /// The data source or template name the event belongs to.
+    /// What kind of trigger this handler responds to.
+    pub kind: HandlerKind,
+    /// The data source or template name the trigger belongs to.
     pub source: Ident,
-    /// The event name (resolved against the source's ABI).
+    /// The event name (event handler) or function name (call handler). For
+    /// block handlers this echoes the source name and is otherwise unused.
     pub event: Ident,
-    /// The handler parameter binding (conventionally `event`).
+    /// The handler parameter binding (`event` / `call` / `block`).
     pub param: Ident,
     /// The handler body.
     pub body: Block,
     /// Span of the whole declaration.
     pub span: Span,
+}
+
+/// The trigger kind of a [`HandlerDecl`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HandlerKind {
+    /// `handler on Source.Event(event)` — an Ethereum log/event handler.
+    Event,
+    /// `handler call Source.function(call)` — a function-call handler.
+    Call,
+    /// `handler block Source(block) [every N | once]` — a block handler.
+    Block(BlockFilter),
+}
+
+/// The block-handler trigger filter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockFilter {
+    /// Run on every block (no `filter:` in the manifest).
+    Every,
+    /// `filter: { kind: polling, every: N }`.
+    Polling(u64),
+    /// `filter: { kind: once }`.
+    Once,
+}
+
+impl HandlerDecl {
+    /// The AssemblyScript export name Redstart derives for this handler.
+    #[must_use]
+    pub fn fn_name(&self) -> String {
+        match self.kind {
+            HandlerKind::Event => format!("handle{}", self.event.name),
+            HandlerKind::Call => format!("handle{}Call", capitalize(&self.event.name)),
+            // The param binding (conventionally `block`) keeps sibling block
+            // handlers on one source uniquely named — `handleTokenBlock`.
+            HandlerKind::Block(_) => format!("handle{}{}", self.source.name, capitalize(&self.param.name)),
+        }
+    }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map_or_else(String::new, |c| {
+        c.to_uppercase().collect::<String>() + chars.as_str()
+    })
 }
 
 /// `fn name(params) -> ret { body }`

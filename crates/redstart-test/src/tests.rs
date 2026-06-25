@@ -15,7 +15,10 @@ const ABI: &str = r#"[
     {"name":"value","type":"uint256","indexed":false}]},
   {"type":"function","name":"balanceOf","stateMutability":"view",
     "inputs":[{"name":"account","type":"address"}],
-    "outputs":[{"name":"","type":"uint256"}]}
+    "outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"transfer","stateMutability":"nonpayable",
+    "inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],
+    "outputs":[{"name":"success","type":"bool"}]}
 ]"#;
 
 const PROGRAM: &str = r#"
@@ -46,6 +49,18 @@ handler on Token.Approval(event) {
     }
     Err(e) => {}
   }
+}
+
+entity Snapshot { id: Id<Bytes> total: BigInt }
+
+handler call Token.transfer(call) {
+  let acct = Account.loadOrCreate(call.inputs.to, { balance: BigInt.zero })
+  acct.balance = acct.balance + call.inputs.amount
+}
+
+handler block Token(block) {
+  let snap = Snapshot.create(block.hash, { total: BigInt.zero })
+  snap.total = block.number
 }
 "#;
 
@@ -206,6 +221,32 @@ test "handler with conditional logic" {
   Token.Transfer({ from: 0x01, to: 0x02, value: 50 })
   assert(Account.at(0x01).balance < 0)
   assertEq(Account.at(0x02).balance, 50)
+}
+"#,
+    );
+    assert!(out[0].1, "expected pass, got: {}", out[0].2);
+}
+
+#[test]
+fn call_handler_reads_inputs() {
+    let out = outcomes(
+        r#"
+test "call handler credits via inputs" {
+  Token.transfer({ to: 0x07, amount: 250 })
+  assertEq(Account.at(0x07).balance, 250)
+}
+"#,
+    );
+    assert!(out[0].1, "expected pass, got: {}", out[0].2);
+}
+
+#[test]
+fn block_handler_snapshots() {
+    let out = outcomes(
+        r#"
+test "block handler records number" {
+  Token.block({ _block: 1234 })
+  assertEq(Snapshot.at(0x0000000000000000000000000000000000000000000000000000000000000000).total, 1234)
 }
 "#,
     );

@@ -31,9 +31,15 @@ pub enum RTy {
     Event,
     /// `event.params`.
     Params,
-    /// `event.block`.
+    /// A call handler's call object (`call`).
+    Call,
+    /// `call.inputs`.
+    CallInputs,
+    /// `call.outputs`.
+    CallOutputs,
+    /// `event.block` / `block` (block handler) / `call.block`.
     Block,
-    /// `event.transaction`.
+    /// `event.transaction` / `call.transaction`.
     Transaction,
     /// Anything we couldn't resolve.
     Unknown,

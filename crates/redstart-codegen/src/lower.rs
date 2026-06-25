@@ -22,7 +22,7 @@
 
 use redstart_checker::{sol_to_rty, AbiIndex, EntityInfo, RTy};
 use redstart_parser::ast::{
-    BinOp, Block, Expr, ForIter, HandlerDecl, MatchArm, Pattern, Stmt, UnOp,
+    BinOp, Block, Expr, ForIter, HandlerDecl, HandlerKind, MatchArm, Pattern, Stmt, UnOp,
 };
 use redstart_parser::Ident;
 use std::collections::HashMap;
@@ -53,12 +53,14 @@ struct Frame {
 struct Scope {
     /// Local variable -> resolved type (flat; shadowing is rare and tolerated).
     locals: HashMap<String, RTy>,
-    /// The handler parameter name (the event binding).
+    /// The handler parameter name (the event/call/block binding).
     event_param: String,
-    /// The current handler's ABI name (for event param lookup).
+    /// The resolved type of the handler parameter (Event / Call / Block).
+    param_ty: RTy,
+    /// The current handler's ABI name (for param/function lookup).
     abi: String,
-    /// The current event name.
-    event: String,
+    /// The event name (event handler) or function name (call handler).
+    member: String,
     /// Stack of save frames, one per lexical block.
     frames: Vec<Frame>,
     /// Counter for synthetic temporaries.
@@ -113,11 +115,18 @@ pub fn lower_handler(handler: &HandlerDecl, env: &mut Env) -> (String, Vec<Strin
         .cloned()
         .unwrap_or_default();
 
+    let param_ty = match handler.kind {
+        HandlerKind::Event => RTy::Event,
+        HandlerKind::Call => RTy::Call,
+        HandlerKind::Block(_) => RTy::Block,
+    };
+
     let mut scope = Scope {
         locals: HashMap::new(),
         event_param: handler.param.name.clone(),
+        param_ty,
         abi,
-        event: handler.event.name.clone(),
+        member: handler.event.name.clone(),
         frames: Vec::new(),
         tmp: 0,
         warnings: Vec::new(),
@@ -571,8 +580,8 @@ fn lower_expr(expr: &Expr, env: &mut Env, scope: &mut Scope) -> String {
 }
 
 fn lower_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> String {
-    // Synthetic `event.id` -> a unique composite id.
-    if field == "id" {
+    // Synthetic `event.id` -> a unique composite id (event handlers only).
+    if field == "id" && scope.param_ty == RTy::Event {
         if let Expr::Path { segments, .. } = base {
             if segments.len() == 1 && segments[0].name == scope.event_param {
                 return format!(
@@ -684,7 +693,7 @@ fn infer(expr: &Expr, env: &mut Env, scope: &mut Scope) -> RTy {
         Expr::Path { segments, .. } => {
             if segments.len() == 1 {
                 if segments[0].name == scope.event_param {
-                    return RTy::Event;
+                    return scope.param_ty.clone();
                 }
                 if let Some(t) = scope.locals.get(&segments[0].name) {
                     return t.clone();
@@ -741,7 +750,7 @@ fn infer_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> RT
             _ => RTy::Unknown,
         },
         RTy::Params => {
-            let (abi, event) = (scope.abi.clone(), scope.event.clone());
+            let (abi, event) = (scope.abi.clone(), scope.member.clone());
             env.abis
                 .event_params(&abi, &event)
                 .and_then(|params| {
@@ -750,6 +759,28 @@ fn infer_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> RT
                         .find(|p| p.name == field)
                         .map(|p| sol_to_rty(&p.sol_type))
                 })
+                .unwrap_or(RTy::Unknown)
+        }
+        RTy::Call => match field {
+            "inputs" => RTy::CallInputs,
+            "outputs" => RTy::CallOutputs,
+            "block" => RTy::Block,
+            "transaction" => RTy::Transaction,
+            "from" | "to" => RTy::Address,
+            _ => RTy::Unknown,
+        },
+        RTy::CallInputs => {
+            let (abi, func) = (scope.abi.clone(), scope.member.clone());
+            env.abis
+                .function_inputs(&abi, &func)
+                .and_then(|params| params.iter().find(|p| p.name == field).map(|p| sol_to_rty(&p.sol_type)))
+                .unwrap_or(RTy::Unknown)
+        }
+        RTy::CallOutputs => {
+            let (abi, func) = (scope.abi.clone(), scope.member.clone());
+            env.abis
+                .function_output_params(&abi, &func)
+                .and_then(|params| params.iter().find(|p| p.name == field).map(|p| sol_to_rty(&p.sol_type)))
                 .unwrap_or(RTy::Unknown)
         }
         RTy::Block => match field {
