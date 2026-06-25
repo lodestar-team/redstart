@@ -61,6 +61,30 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Build, then run `graph codegen` + `graph build` + `graph deploy`.
+    ///
+    /// Wraps the canonical toolchain end-to-end: Redstart emits the subgraph,
+    /// `graph build` compiles it to WASM (the eject path), and `graph deploy`
+    /// ships it to Subgraph Studio or a self-hosted graph-node.
+    Deploy {
+        /// The subgraph name / Studio slug to deploy as.
+        subgraph: String,
+        /// Path to a project directory, `redstart.toml`, or a `.red` file.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// graph-node admin endpoint (omit for Subgraph Studio).
+        #[arg(long)]
+        node: Option<String>,
+        /// IPFS endpoint (omit for Subgraph Studio's default).
+        #[arg(long)]
+        ipfs: Option<String>,
+        /// Version label for the deployment (e.g. `v0.0.1`).
+        #[arg(long)]
+        version_label: Option<String>,
+        /// Emit the subgraph and run codegen + build, but stop before deploying.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Start the language server over stdio (for editor integration).
     Lsp,
 }
@@ -74,6 +98,14 @@ fn main() -> ExitCode {
         Command::Test { path } => cmd_test(&path),
         Command::Dev { path, once } => cmd_dev(&path, once),
         Command::Fmt { path, check } => cmd_fmt(&path, check),
+        Command::Deploy {
+            subgraph,
+            path,
+            node,
+            ipfs,
+            version_label,
+            dry_run,
+        } => cmd_deploy(&path, &subgraph, node.as_deref(), ipfs.as_deref(), version_label.as_deref(), dry_run),
         Command::Lsp => {
             redstart_lsp::run();
             Ok(())
@@ -120,6 +152,90 @@ fn cmd_build(path: &Path) -> Result<(), String> {
     println!("  • src/mappings.ts");
     println!("  • abis/ ({} file(s))", generated.abi_copies.len());
     Ok(())
+}
+
+fn cmd_deploy(
+    path: &Path,
+    subgraph: &str,
+    node: Option<&str>,
+    ipfs: Option<&str>,
+    version_label: Option<&str>,
+    dry_run: bool,
+) -> Result<(), String> {
+    // 1. Emit the subgraph (same as `redstart build`).
+    let tree = load(path)?;
+    let mut checked = check(&tree)?;
+    let generated = redstart_codegen::generate(&tree, &mut checked);
+    generated
+        .write_to(&tree.out_dir)
+        .map_err(|e| format!("failed to write build output to {}: {e}", tree.out_dir.display()))?;
+    for warning in &generated.warnings {
+        eprintln!("warning: {warning}");
+    }
+    let out = &tree.out_dir;
+    println!("\x1b[1;36m▸\x1b[0m emitted subgraph → {}", out.display());
+
+    // 2. Ensure a package.json pinning the canonical toolchain.
+    let pkg = out.join("package.json");
+    if !pkg.exists() {
+        std::fs::write(
+            &pkg,
+            "{\n  \"name\": \"redstart-subgraph\",\n  \"private\": true,\n  \"devDependencies\": {\n    \"@graphprotocol/graph-cli\": \"latest\",\n    \"@graphprotocol/graph-ts\": \"latest\"\n  }\n}\n",
+        )
+        .map_err(|e| format!("failed to write package.json: {e}"))?;
+    }
+
+    // 3. Install the toolchain if it isn't already present.
+    if !out.join("node_modules").exists() {
+        println!("\x1b[1;36m▸\x1b[0m npm install (graph-cli + graph-ts)");
+        run_in(out, "npm", &["install", "--no-audit", "--no-fund"])?;
+    }
+
+    // 4. graph codegen + graph build — the eject path.
+    println!("\x1b[1;36m▸\x1b[0m graph codegen");
+    run_in(out, "npx", &["--no-install", "graph", "codegen", "subgraph.yaml"])?;
+    println!("\x1b[1;36m▸\x1b[0m graph build");
+    run_in(out, "npx", &["--no-install", "graph", "build", "subgraph.yaml"])?;
+
+    if dry_run {
+        println!("\x1b[1;32m✓\x1b[0m dry run complete — subgraph compiled; skipped deploy");
+        return Ok(());
+    }
+
+    // 5. graph deploy.
+    let mut args: Vec<String> = vec!["--no-install".into(), "graph".into(), "deploy".into(), subgraph.into()];
+    if let Some(n) = node {
+        args.push("--node".into());
+        args.push(n.into());
+    }
+    if let Some(i) = ipfs {
+        args.push("--ipfs".into());
+        args.push(i.into());
+    }
+    if let Some(v) = version_label {
+        args.push("--version-label".into());
+        args.push(v.into());
+    }
+    println!("\x1b[1;36m▸\x1b[0m graph deploy {subgraph}");
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_in(out, "npx", &arg_refs)?;
+
+    println!("\x1b[1;32m✓\x1b[0m deployed {subgraph}");
+    Ok(())
+}
+
+/// Run `program args…` in `dir`, inheriting stdio, mapping a failure to an error.
+fn run_in(dir: &Path, program: &str, args: &[&str]) -> Result<(), String> {
+    let status = std::process::Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .map_err(|e| format!("could not run `{program}` (is it installed and on PATH?): {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("`{program} {}` failed", args.join(" ")))
+    }
 }
 
 /// Load a project, formatting any errors into a single message.

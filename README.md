@@ -84,6 +84,7 @@ good in the lineage of Matchstick, not a venture bet.
 | `redstart test` — native test interpreter (mock store + mocked calls, no WASM/Docker/Matchstick) | `redstart-test` | ✅ working |
 | `redstart fmt` — canonical, comment-preserving formatting (`--check` mode) | `redstart-cli` | ✅ working |
 | `redstart dev` — watch loop re-running check → build → test on every change | `redstart-cli` | ✅ working |
+| `redstart deploy` — build → `graph codegen` → `graph build` → `graph deploy` (Studio or self-hosted), with `--dry-run` | `redstart-cli` | ✅ working |
 | Tree-sitter grammar + highlight queries (Neovim/Helix/Zed/GitHub) | `tree-sitter-redstart` | ✅ grammar written |
 | `redstart lsp` — language server: diagnostics, formatting, symbols, hover, go-to-def, completion | `redstart-lsp` | ✅ working |
 | VS Code extension (LSP client + TextMate highlighting) | `editors/vscode` | ✅ working |
@@ -116,6 +117,10 @@ cargo run -p redstart-cli -- build examples/erc20
 cargo run -p redstart-cli -- test examples/erc20
 cargo run -p redstart-cli -- fmt --check examples/erc20
 cargo run -p redstart-cli -- dev examples/erc20    # watch: check → build → test on save
+
+# ship it: redstart build → graph codegen → graph build → graph deploy
+cargo run -p redstart-cli -- deploy my-slug examples/erc20 --dry-run   # compile only, no network
+cargo run -p redstart-cli -- deploy my-slug examples/erc20             # to Subgraph Studio
 ```
 
 ## Project layout
