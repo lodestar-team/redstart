@@ -820,7 +820,7 @@ impl<'t> Interp<'t> {
                 match field.name.as_str() {
                     "loadOrCreate" => return self.load_or_create(&entity, args, world, frame, true, span),
                     "create" => return self.create_entity(&entity, args, world, frame, span),
-                    "load" => return self.load_entity(&entity, args, world, frame, span),
+                    "load" | "loadInBlock" => return self.load_entity(&entity, args, world, frame, span),
                     "at" => return self.at_entity(&entity, args, world, frame, span),
                     _ => {}
                 }

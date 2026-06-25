@@ -81,7 +81,7 @@ good in the lineage of Matchstick, not a venture bet.
 | graph-ts surface — `log`, `crypto`, `dataSource`, `store`, `json`, `ipfs`, `ethereum` namespaces + fuller `BigInt`/`BigDecimal`/`Bytes`/`Address` statics & methods, with whole-word import inference | `redstart-codegen` | ✅ working |
 | Schema breadth — `enum` declarations, `interface` + `entity X implements Y & Z` (with field-completeness checking), `Int8` / `Timestamp` scalars, `@derivedFrom`, `@entity(immutable/timeseries)` | `redstart-codegen` | ✅ working |
 | Timeseries & aggregations — `entity Data timeseries { … }` (auto `id`/`timestamp`, implicitly immutable) + `aggregation Stats over Data every [hour, day] { total: BigDecimal = sum(price) }` → `@aggregation`/`@aggregate`, auto-bumps `specVersion` to 1.1.0 | `redstart-codegen` | ✅ working |
-| Semantic checker — unknown source/event/type, missing source settings, `derived` back-refs, required-field init, `.value`-without-`match`, arithmetic-on-`Option`, assign-to-`derived` | `redstart-checker` | ✅ working |
+| Semantic checker — unknown source/event/type, missing source settings, `derived` back-refs, required-field init, `.value`-without-`match`, arithmetic-on-`Option`, **deref-of-nullable** (`load`/`loadInBlock`/`ipfs.cat` return `Option<T>` — must be `match`ed), assign-to-`derived` | `redstart-checker` | ✅ working |
 | `redstart test` — native test interpreter (mock store + mocked calls, no WASM/Docker/Matchstick) | `redstart-test` | ✅ working |
 | `redstart fmt` — canonical, comment-preserving formatting (`--check` mode) | `redstart-cli` | ✅ working |
 | `redstart dev` — watch loop re-running check → build → test on every change | `redstart-cli` | ✅ working |

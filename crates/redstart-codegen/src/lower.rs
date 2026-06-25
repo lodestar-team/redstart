@@ -304,7 +304,8 @@ struct EntityCtor<'a> {
 enum CtorKind {
     LoadOrCreate,
     Create,
-    Load,
+    /// `load(id)` / `loadInBlock(id)` — both return `Option<Entity>`.
+    Load { in_block: bool },
 }
 
 fn entity_ctor(value: &Expr) -> Option<EntityCtor<'_>> {
@@ -321,7 +322,8 @@ fn entity_ctor(value: &Expr) -> Option<EntityCtor<'_>> {
     let kind = match field.name.as_str() {
         "loadOrCreate" => CtorKind::LoadOrCreate,
         "create" => CtorKind::Create,
-        "load" => CtorKind::Load,
+        "load" => CtorKind::Load { in_block: false },
+        "loadInBlock" => CtorKind::Load { in_block: true },
         _ => return None,
     };
     let id = args.first()?;
@@ -350,10 +352,9 @@ fn lower_entity_ctor(
     let entity = &ctor.entity;
     let id = lower_expr(ctor.id, env, scope);
 
-    scope.declare_entity(var, entity.clone());
-
     match ctor.kind {
         CtorKind::LoadOrCreate => {
+            scope.declare_entity(var, entity.clone());
             out.push_str(&format!("{pad}let {var} = {entity}.load({id})\n"));
             out.push_str(&format!("{pad}if ({var} == null) {{\n"));
             out.push_str(&format!("{pad}  {var} = new {entity}({id})\n"));
@@ -364,15 +365,19 @@ fn lower_entity_ctor(
             scope.mark_dirty(var);
         }
         CtorKind::Create => {
+            scope.declare_entity(var, entity.clone());
             out.push_str(&format!("{pad}let {var} = new {entity}({id})\n"));
             if let Some(fields) = ctor.record {
                 lower_record_init(var, entity, fields, env, scope, out, level);
             }
             scope.mark_dirty(var);
         }
-        CtorKind::Load => {
-            // load() may return null; not auto-saved unless later mutated.
-            out.push_str(&format!("{pad}let {var} = {entity}.load({id})\n"));
+        CtorKind::Load { in_block } => {
+            // `load`/`loadInBlock` return `Option<Entity>`: the local is nullable
+            // and must be `match`ed before use, so null-deref is unrepresentable.
+            scope.declare_local(&name.name, RTy::Option(Box::new(RTy::Entity(entity.clone()))));
+            let method = if in_block { "loadInBlock" } else { "load" };
+            out.push_str(&format!("{pad}let {var} = {entity}.{method}({id})\n"));
         }
     }
 }
@@ -473,13 +478,7 @@ fn lower_match(
             let (ok_bind, ok_body) = find_arm(arms, "Ok");
             let (_err_bind, err_body) = find_arm(arms, "Err");
             out.push_str(&format!("{pad}if (!{var}.reverted) {{\n"));
-            if let Some(bind) = ok_bind {
-                out.push_str(&format!("{pad}  let {bind} = {var}.value\n"));
-                scope.declare_local(&bind.name, (*inner).clone());
-            }
-            if let Some(body) = ok_body {
-                lower_block(body, env, scope, out, level + 1);
-            }
+            lower_arm(ok_bind, &format!("{var}.value"), &inner, ok_body, env, scope, out, level);
             out.push_str(&format!("{pad}}}"));
             if let Some(body) = err_body.filter(|b| !b.stmts.is_empty()) {
                 out.push_str(" else {\n");
@@ -492,13 +491,7 @@ fn lower_match(
             let (some_bind, some_body) = find_arm(arms, "Some");
             let (_none_bind, none_body) = find_arm(arms, "None");
             out.push_str(&format!("{pad}if ({var} != null) {{\n"));
-            if let Some(bind) = some_bind {
-                out.push_str(&format!("{pad}  let {bind} = {var}!\n"));
-                scope.declare_local(&bind.name, (*inner).clone());
-            }
-            if let Some(body) = some_body {
-                lower_block(body, env, scope, out, level + 1);
-            }
+            lower_arm(some_bind, &format!("{var}!"), &inner, some_body, env, scope, out, level);
             out.push_str(&format!("{pad}}}"));
             if let Some(body) = none_body.filter(|b| !b.stmts.is_empty()) {
                 out.push_str(" else {\n");
@@ -512,6 +505,45 @@ fn lower_match(
                 "`match` on a {scrut_ty:?} scrutinee is not supported yet; emitted a comment"
             ));
             out.push_str(&format!("{pad}// TODO: unsupported match\n"));
+        }
+    }
+}
+
+/// Lower one `match` arm: bind the unwrapped value (if the pattern binds one) in
+/// a fresh frame, lower the body, then auto-save any entity it dirtied. An
+/// entity binding is save-tracked here, so `Some(token) => { token.x = … }`
+/// can't silently drop the write.
+#[allow(clippy::too_many_arguments)]
+fn lower_arm(
+    bind: Option<&Ident>,
+    bind_rhs: &str,
+    inner: &RTy,
+    body: Option<&Block>,
+    env: &mut Env,
+    scope: &mut Scope,
+    out: &mut String,
+    level: usize,
+) {
+    scope.frames.push(Frame::default());
+    let pad = indent(level + 1);
+    if let Some(b) = bind {
+        out.push_str(&format!("{pad}let {} = {bind_rhs}\n", b.name));
+        if let RTy::Entity(name) = inner {
+            scope.declare_entity(&b.name, name.clone());
+        } else {
+            scope.declare_local(&b.name, inner.clone());
+        }
+    }
+    if let Some(body) = body {
+        for stmt in &body.stmts {
+            lower_stmt(stmt, env, scope, out, level + 1);
+        }
+    }
+    let frame = scope.frames.pop().expect("frame pushed above");
+    if !frame.dirty.is_empty() {
+        out.push('\n');
+        for name in &frame.dirty {
+            out.push_str(&format!("{pad}{name}.save()\n"));
         }
     }
 }
@@ -821,11 +853,22 @@ fn infer_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> RT
 
 fn infer_call(callee: &Expr, env: &mut Env, scope: &mut Scope) -> RTy {
     if let Expr::Field { base, field, .. } = callee {
-        // `Abi.bind(addr)` -> a bound contract instance.
-        if field.name == "bind" {
-            if let Expr::Path { segments, .. } = base.as_ref() {
-                if segments.len() == 1 && env.abis.paths.contains_key(&segments[0].name) {
-                    return RTy::Contract(segments[0].name.clone());
+        if let Expr::Path { segments, .. } = base.as_ref() {
+            if segments.len() == 1 {
+                let base_name = &segments[0].name;
+                // `Abi.bind(addr)` -> a bound contract instance.
+                if field.name == "bind" && env.abis.paths.contains_key(base_name) {
+                    return RTy::Contract(base_name.clone());
+                }
+                // `Entity.load(id)` / `loadInBlock(id)` -> Option<Entity> (nullable).
+                if matches!(field.name.as_str(), "load" | "loadInBlock")
+                    && env.entities.contains_key(base_name)
+                {
+                    return RTy::Option(Box::new(RTy::Entity(base_name.clone())));
+                }
+                // `ipfs.cat(hash)` -> Option<Bytes> (the fetch may fail).
+                if base_name == "ipfs" && field.name == "cat" {
+                    return RTy::Option(Box::new(RTy::Bytes));
                 }
             }
         }

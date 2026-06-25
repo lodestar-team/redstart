@@ -475,11 +475,17 @@ fn check_block(
     for stmt in stmts {
         match stmt {
             Stmt::Let { name, value, .. } => {
-                if let Some((entity, record)) = entity_ctor(value) {
+                if let Some((entity, record, nullable)) = entity_ctor(value) {
                     check_ctor_record(&entity, record, ctx, file, value, diags);
                     check_expr(value, ctx, locals, file, diags);
-                    // load/loadOrCreate/create yield the entity type.
-                    locals.insert(name.name.clone(), RTy::Entity(entity));
+                    // `loadOrCreate`/`create` yield the entity; `load`/`loadInBlock`
+                    // yield `Option<Entity>` — it must be matched before use.
+                    let ty = if nullable {
+                        RTy::Option(Box::new(RTy::Entity(entity)))
+                    } else {
+                        RTy::Entity(entity)
+                    };
+                    locals.insert(name.name.clone(), ty);
                 } else {
                     check_expr(value, ctx, locals, file, diags);
                     locals.insert(name.name.clone(), infer(value, ctx, locals));
@@ -720,6 +726,10 @@ fn check_expr(
                         ));
                     }
                 }
+                RTy::Option(_) => diags.push(
+                    Diag::new(file, &field.span, "E062", format!("cannot access `.{}` on a nullable value", field.name), "this may be null")
+                        .with_help("`match` it first: `match x { Some(v) => { … } None => { … } }` — `load`/`loadInBlock`/`ipfs.cat` can return nothing"),
+                ),
                 _ => {}
             }
             check_expr(base, ctx, locals, file, diags);
@@ -861,10 +871,20 @@ fn infer_field(base: &Expr, field: &str, ctx: &BodyCtx, locals: &HashMap<String,
 
 fn infer_call(callee: &Expr, ctx: &BodyCtx, locals: &HashMap<String, RTy>) -> RTy {
     if let Expr::Field { base, field, .. } = callee {
-        if field.name == "bind" {
-            if let Expr::Path { segments, .. } = base.as_ref() {
-                if segments.len() == 1 && ctx.abis.paths.contains_key(&segments[0].name) {
-                    return RTy::Contract(segments[0].name.clone());
+        if let Expr::Path { segments, .. } = base.as_ref() {
+            if segments.len() == 1 {
+                let base_name = &segments[0].name;
+                if field.name == "bind" && ctx.abis.paths.contains_key(base_name) {
+                    return RTy::Contract(base_name.clone());
+                }
+                // `Entity.load(id)` / `loadInBlock(id)` -> Option<Entity> (nullable).
+                if matches!(field.name.as_str(), "load" | "loadInBlock")
+                    && ctx.entities.contains_key(base_name)
+                {
+                    return RTy::Option(Box::new(RTy::Entity(base_name.clone())));
+                }
+                if base_name == "ipfs" && field.name == "cat" {
+                    return RTy::Option(Box::new(RTy::Bytes));
                 }
             }
         }
@@ -890,17 +910,20 @@ fn infer_call(callee: &Expr, ctx: &BodyCtx, locals: &HashMap<String, RTy>) -> RT
 type CtorRecord<'a> = Option<&'a [(redstart_parser::Ident, Expr)]>;
 
 /// Detect an `Entity.loadOrCreate(id, {..})` / `Entity.create(id, {..})` /
-/// `Entity.load(id)` call, returning the entity name and any record literal.
-fn entity_ctor(value: &Expr) -> Option<(String, CtorRecord<'_>)> {
+/// `Entity.load(id)` / `Entity.loadInBlock(id)` call, returning the entity name,
+/// any record literal, and whether the result is nullable (`load`/`loadInBlock`).
+fn entity_ctor(value: &Expr) -> Option<(String, CtorRecord<'_>, bool)> {
     let Expr::Call { callee, args, .. } = value else {
         return None;
     };
     let Expr::Field { base, field, .. } = callee.as_ref() else {
         return None;
     };
-    if !matches!(field.name.as_str(), "loadOrCreate" | "create" | "load") {
-        return None;
-    }
+    let nullable = match field.name.as_str() {
+        "loadOrCreate" | "create" => false,
+        "load" | "loadInBlock" => true,
+        _ => return None,
+    };
     let Expr::Path { segments, .. } = base.as_ref() else {
         return None;
     };
@@ -909,7 +932,7 @@ fn entity_ctor(value: &Expr) -> Option<(String, CtorRecord<'_>)> {
         Some(Expr::Record { fields, .. }) => Some(fields.as_slice()),
         _ => None,
     };
-    Some((entity, record))
+    Some((entity, record, nullable))
 }
 
 fn validate_type(ty: &TypeExpr, entity_names: &[String], aux_types: &[String], file: &str, diags: &mut Vec<Diag>) {

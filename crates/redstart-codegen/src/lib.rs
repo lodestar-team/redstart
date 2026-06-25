@@ -468,4 +468,39 @@ handler file Meta(content) {
         assert!(m.contains("dataSource.stringParam()"));
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
+
+    #[test]
+    fn nullable_load_matches_and_autosaves() {
+        let gen = build(
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Account { id: Id<Bytes> balance: BigInt }
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+handler on Token.Transfer(event) {
+  let acct = Account.load(event.params.to)
+  match acct {
+    Some(a) => {
+      a.balance = a.balance + event.params.value
+    }
+    None => {}
+  }
+}
+"#,
+            TRANSFER_ABI,
+        );
+        let m = &gen.mappings;
+        // load() is nullable -> match lowers to a null-check; the bound entity
+        // is auto-saved inside the arm.
+        assert!(m.contains("let acct = Account.load(event.params.to)"), "got:\n{m}");
+        assert!(m.contains("if (acct != null) {"), "got:\n{m}");
+        assert!(m.contains("let a = acct!"), "got:\n{m}");
+        assert!(m.contains("a.balance = a.balance.plus(event.params.value)"), "got:\n{m}");
+        assert!(m.contains("a.save()"), "matched entity must auto-save, got:\n{m}");
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
 }

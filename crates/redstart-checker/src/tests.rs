@@ -118,12 +118,32 @@ fn arithmetic_on_option_is_rejected() {
     let src = format!(
         "{}\nentity Acc {{ id: Id<Bytes> bal: Option<BigInt> }}\n\
          handler on Token.Transfer(event) {{\n\
-           let a = Acc.load(event.params.to)\n\
+           let a = Acc.loadOrCreate(event.params.to, {{}})\n\
            let x = a.bal + event.params.value\n\
          }}\n",
         PREAMBLE
     );
     assert_err_contains(run(&src), "cannot do arithmetic on an `Option`");
+}
+
+#[test]
+fn deref_of_nullable_load_is_rejected() {
+    // `load` returns `Option<Entity>` — touching a field without `match`ing first
+    // is a null-deref, caught at compile time.
+    let src = with_handler(
+        "let a = Account.load(event.params.to)\n\
+         let b = a.balance",
+    );
+    assert_err_contains(run(&src), "cannot access `.balance` on a nullable value");
+}
+
+#[test]
+fn matched_load_is_accepted() {
+    let ok = with_handler(
+        "let a = Account.load(event.params.to)\n\
+         match a {\n  Some(acct) => { let b = acct.balance }\n  None => {}\n}",
+    );
+    assert!(run(&ok).is_ok(), "matched load should type-check");
 }
 
 #[test]
