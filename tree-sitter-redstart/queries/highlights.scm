@@ -3,7 +3,7 @@
 ; Keywords
 [
   "mod" "use" "abi" "from" "entity" "enum" "source" "template"
-  "handler" "on" "fn" "test" "derived" "pub"
+  "handler" "on" "call" "block" "file" "every" "once" "fn" "test" "derived" "pub"
 ] @keyword
 
 "let" @keyword

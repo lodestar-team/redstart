@@ -83,9 +83,19 @@ module.exports = grammar({
     ),
 
     handler_declaration: $ => seq(
-      'handler', 'on',
-      field('source', $.identifier), '.', field('event', $.identifier),
+      'handler',
+      choice(
+        // event:  handler on Source.Event(event)
+        seq('on', field('source', $.identifier), '.', field('event', $.identifier)),
+        // call:   handler call Source.fn(call)
+        seq('call', field('source', $.identifier), '.', field('event', $.identifier)),
+        // block:  handler block Source(block) [every N | once]
+        seq('block', field('source', $.identifier)),
+        // file:   handler file Template(content)
+        seq('file', field('source', $.identifier)),
+      ),
       '(', field('param', $.identifier), ')',
+      optional(choice(seq('every', $.integer), 'once')),
       field('body', $.block),
     ),
 
