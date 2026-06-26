@@ -5,8 +5,8 @@
 //! the file lives at `build/src/mappings.ts` and imports the `graph codegen`
 //! output from `../generated/...`.
 
-use crate::lower::{lower_handler, Env};
-use redstart_parser::ast::{HandlerDecl, HandlerKind};
+use crate::lower::{lower_fn, lower_handler, Env};
+use redstart_parser::ast::{FnDecl, HandlerDecl, HandlerKind};
 use std::collections::BTreeMap;
 
 /// The AssemblyScript class name for a call handler's `call` parameter
@@ -30,13 +30,24 @@ fn param_type(handler: &HandlerDecl) -> String {
     }
 }
 
-/// Render `mappings.ts` for all handlers. Returns the source and any warnings.
-pub fn render(handlers: &[&HandlerDecl], entity_names: &[String], env: &mut Env) -> (String, Vec<String>) {
+/// Render `mappings.ts` for all handlers and helper functions. Returns the
+/// source and any warnings.
+pub fn render(
+    handlers: &[&HandlerDecl],
+    helpers: &[&FnDecl],
+    entity_names: &[String],
+    env: &mut Env,
+) -> (String, Vec<String>) {
     let mut warnings = Vec::new();
 
-    // Lower every handler first, so we can scan the generated code to decide
-    // which graph-ts types to import.
+    // Lower helpers and handlers first, so we can scan the generated code to
+    // decide which graph-ts types to import.
     let mut functions = String::new();
+    for func in helpers {
+        let (text, mut warns) = lower_fn(func, env);
+        warnings.append(&mut warns);
+        functions.push_str(&text);
+    }
     for handler in handlers {
         let (body, mut warns) = lower_handler(handler, env);
         warnings.append(&mut warns);

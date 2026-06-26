@@ -1,0 +1,4 @@
+[project]
+name = "horizon-indexer"
+entry = "src/main.red"
+description = "Indexes The Graph Horizon staking, allocations, delegations, and rewards on Arbitrum One."

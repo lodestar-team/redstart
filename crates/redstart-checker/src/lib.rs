@@ -145,6 +145,13 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
     let mut aux_types = enum_names.clone();
     aux_types.extend(interfaces.keys().cloned());
 
+    // Free-function return types, for typing helper calls in bodies.
+    let fn_returns: HashMap<String, RTy> = modules
+        .iter()
+        .flat_map(|m| &m.program.functions)
+        .filter_map(|f| f.ret.as_ref().map(|t| (f.name.name.clone(), resolve_type(t, &entities))))
+        .collect();
+
     for (m, file) in modules.iter().zip(&files) {
         for i in &m.program.interfaces {
             for f in &i.fields {
@@ -179,10 +186,14 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
                 &entity_meta,
                 &source_abi,
                 &data_source_names,
+                &fn_returns,
                 &mut abis,
                 file,
                 &mut diags,
             );
+        }
+        for func in &m.program.functions {
+            check_fn(func, &entities, &entity_meta, &fn_returns, &abis, file, &mut diags);
         }
     }
 
@@ -384,6 +395,7 @@ fn check_handler(
     meta: &HashMap<String, EntityMeta>,
     source_abi: &HashMap<String, String>,
     data_sources: &HashMap<String, ()>,
+    fn_returns: &HashMap<String, RTy>,
     abis: &mut AbiIndex,
     file: &str,
     diags: &mut Vec<Diag>,
@@ -435,10 +447,41 @@ fn check_handler(
         param_ty,
         event_params: params,
         call_outputs: outputs,
+        fn_returns,
         abis,
     };
     let mut locals: HashMap<String, RTy> = HashMap::new();
     check_block(&h.body.stmts, &ctx, &mut locals, file, diags);
+}
+
+/// Check a free `fn` body — same footgun analysis as a handler, with the
+/// function's parameters seeded as typed locals.
+#[allow(clippy::too_many_arguments)]
+fn check_fn(
+    func: &redstart_parser::ast::FnDecl,
+    entities: &HashMap<String, EntityInfo>,
+    meta: &HashMap<String, EntityMeta>,
+    fn_returns: &HashMap<String, RTy>,
+    abis: &AbiIndex,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
+    let ctx = BodyCtx {
+        entities,
+        meta,
+        event_param: String::new(),
+        param_ty: RTy::Unknown,
+        event_params: HashMap::new(),
+        call_outputs: HashMap::new(),
+        fn_returns,
+        abis,
+    };
+    let mut locals: HashMap<String, RTy> = func
+        .params
+        .iter()
+        .map(|p| (p.name.name.clone(), resolve_type(&p.ty, entities)))
+        .collect();
+    check_block(&func.body.stmts, &ctx, &mut locals, file, diags);
 }
 
 /// Convert an optional ABI parameter list into a name → resolved-type map.
@@ -462,6 +505,8 @@ struct BodyCtx<'a> {
     event_params: HashMap<String, RTy>,
     /// Function outputs (call handler only).
     call_outputs: HashMap<String, RTy>,
+    /// Free-function name -> resolved return type.
+    fn_returns: &'a HashMap<String, RTy>,
     abis: &'a AbiIndex,
 }
 
@@ -870,6 +915,13 @@ fn infer_field(base: &Expr, field: &str, ctx: &BodyCtx, locals: &HashMap<String,
 }
 
 fn infer_call(callee: &Expr, ctx: &BodyCtx, locals: &HashMap<String, RTy>) -> RTy {
+    if let Expr::Path { segments, .. } = callee {
+        if segments.len() == 1 {
+            if let Some(ret) = ctx.fn_returns.get(&segments[0].name) {
+                return ret.clone();
+            }
+        }
+    }
     if let Expr::Field { base, field, .. } = callee {
         if let Expr::Path { segments, .. } = base.as_ref() {
             if segments.len() == 1 {

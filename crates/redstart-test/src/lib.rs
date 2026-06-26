@@ -106,6 +106,8 @@ struct Interp<'t> {
     abis: Vec<String>,
     /// declared template names (dynamic data sources).
     templates: std::collections::HashSet<String>,
+    /// free helper functions, by name.
+    fns: HashMap<String, &'t redstart_parser::ast::FnDecl>,
 }
 
 /// A mocked contract-call outcome.
@@ -120,13 +122,19 @@ struct World {
     mocks: HashMap<String, Mock>,
     /// Dynamic data sources spawned via `<Template>.create(addr)`.
     created: Vec<(String, Vec<u8>)>,
+    /// Entities touched during the *current* handler invocation, shared across
+    /// every helper-fn frame so `getOrCreateX` helpers see each other's writes
+    /// (graph-node's in-block semantics). Flushed to `store` when the handler
+    /// returns, then cleared.
+    working: Vec<WorkingEntity>,
 }
 
-/// A lexical frame (test body or one handler invocation).
+/// A lexical frame (test body, a handler invocation, or a helper-fn call).
 struct Frame {
     locals: HashMap<String, Value>,
-    working: Vec<WorkingEntity>,
     returned: bool,
+    /// The value of the `return` that exited this frame (for helper fns).
+    return_value: Option<Value>,
 }
 
 struct WorkingEntity {
@@ -159,6 +167,7 @@ impl<'t> Interp<'t> {
         let mut source_addr = HashMap::new();
         let mut abis = Vec::new();
         let mut templates = std::collections::HashSet::new();
+        let mut fns = HashMap::new();
 
         for m in tree.ordered() {
             for a in &m.program.abis {
@@ -166,6 +175,9 @@ impl<'t> Interp<'t> {
             }
             for t in &m.program.templates {
                 templates.insert(t.name.name.clone());
+            }
+            for f in &m.program.functions {
+                fns.insert(f.name.name.clone(), f);
             }
             for h in &m.program.handlers {
                 match h.kind {
@@ -193,6 +205,7 @@ impl<'t> Interp<'t> {
             source_addr,
             abis,
             templates,
+            fns,
         }
     }
 
@@ -201,11 +214,12 @@ impl<'t> Interp<'t> {
             store: HashMap::new(),
             mocks: HashMap::new(),
             created: Vec::new(),
+            working: Vec::new(),
         };
         let mut frame = Frame {
             locals: HashMap::new(),
-            working: Vec::new(),
             returned: false,
+            return_value: None,
         };
         match self.exec_block(body, &mut world, &mut frame) {
             Ok(()) => Outcome::Pass,
@@ -243,7 +257,7 @@ impl<'t> Interp<'t> {
             }
             Stmt::Return { value, .. } => {
                 if let Some(v) = value {
-                    self.eval(v, world, frame)?;
+                    frame.return_value = Some(self.eval(v, world, frame)?);
                 }
                 frame.returned = true;
             }
@@ -425,8 +439,8 @@ impl<'t> Interp<'t> {
         if let Expr::Field { base, field, span } = target {
             let bv = self.eval(base, world, frame)?;
             if let Value::Handle(h) = bv {
-                frame.working[h].fields.insert(field.name.clone(), v);
-                frame.working[h].dirty = true;
+                world.working[h].fields.insert(field.name.clone(), v);
+                world.working[h].dirty = true;
                 return Ok(());
             }
             return err("can only assign to entity fields", Some(span.clone()));
@@ -549,11 +563,12 @@ impl<'t> Interp<'t> {
 
         let mut hframe = Frame {
             locals: HashMap::from([(handler.param.name.clone(), Value::Event(Box::new(ev)))]),
-            working: Vec::new(),
             returned: false,
+            return_value: None,
         };
         self.exec_block(&handler.body, world, &mut hframe)?;
-        flush(&hframe, world);
+        flush(world);
+        world.working.clear();
         Ok(())
     }
 
@@ -585,11 +600,12 @@ impl<'t> Interp<'t> {
         for handler in handlers {
             let mut hframe = Frame {
                 locals: HashMap::from([(handler.param.name.clone(), Value::EventBlock(Box::new(ev.clone())))]),
-                working: Vec::new(),
                 returned: false,
+                return_value: None,
             };
             self.exec_block(&handler.body, world, &mut hframe)?;
-            flush(&hframe, world);
+            flush(world);
+        world.working.clear();
         }
         Ok(())
     }
@@ -607,11 +623,12 @@ impl<'t> Interp<'t> {
         };
         let mut hframe = Frame {
             locals: HashMap::from([(handler.param.name.clone(), content)]),
-            working: Vec::new(),
             returned: false,
+            return_value: None,
         };
         self.exec_block(&handler.body, world, &mut hframe)?;
-        flush(&hframe, world);
+        flush(world);
+        world.working.clear();
         Ok(())
     }
 
@@ -647,12 +664,13 @@ impl<'t> Interp<'t> {
         }
         let mut hframe = Frame {
             locals: HashMap::from([(handler.param.name.clone(), Value::Call(Box::new(call)))]),
-            working: Vec::new(),
             returned: false,
+            return_value: None,
         };
         let _ = span;
         self.exec_block(&handler.body, world, &mut hframe)?;
-        flush(&hframe, world);
+        flush(world);
+        world.working.clear();
         Ok(())
     }
 
@@ -774,7 +792,7 @@ impl<'t> Interp<'t> {
                 "length" => Ok(Value::Int(items.len() as i64)),
                 _ => err(format!("array has no field `{field}`"), Some(span.clone())),
             },
-            Value::Handle(h) => Ok(frame.working[h].fields.get(field).cloned().unwrap_or(Value::Null)),
+            Value::Handle(h) => Ok(world.working[h].fields.get(field).cloned().unwrap_or(Value::Null)),
             Value::Stored(_, fields) => Ok(fields.get(field).cloned().unwrap_or(Value::Null)),
             Value::Result { reverted, value } => match field {
                 "reverted" => Ok(Value::Bool(reverted)),
@@ -786,6 +804,12 @@ impl<'t> Interp<'t> {
     }
 
     fn eval_call(&self, callee: &Expr, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+        // A bare call to a user helper function.
+        if let Some(name) = single_path(callee) {
+            if let Some(func) = self.fns.get(&name).copied() {
+                return self.invoke_fn(func, args, world, frame, span);
+            }
+        }
         if let Expr::Field { base, field, .. } = callee {
             // `Abi.bind(addr)` -> a bound contract. (base is a namespace path)
             if field.name == "bind" {
@@ -856,9 +880,32 @@ impl<'t> Interp<'t> {
                         span: Some(span.clone()),
                     });
                 }
+                "toI64" | "toI32" | "toU64" | "toU32" | "toBigInt" => {
+                    if let Some(b) = bv.to_bigint() {
+                        return Ok(Value::Big(b));
+                    }
+                }
+                "toHexString" | "toHex" => {
+                    if let Value::Bytes(b) = &bv {
+                        return Ok(Value::Str(format!("0x{}", hex(b))));
+                    }
+                    return Ok(Value::Str(bv.canonical()));
+                }
+                "toString" => return Ok(Value::Str(bv.canonical())),
                 "abs" => {
                     if let Some(b) = bv.to_bigint() {
                         return Ok(Value::Big(b.magnitude().clone().into()));
+                    }
+                }
+                "plus" | "minus" | "times" | "div" => {
+                    let rhs = args.first().map(|a| self.eval(a, world, frame)).transpose()?;
+                    if let (Some(a), Some(b)) = (bv.to_bigint(), rhs.and_then(|r| r.to_bigint())) {
+                        return Ok(Value::Big(match field.name.as_str() {
+                            "plus" => a + b,
+                            "minus" => a - b,
+                            "times" => a * b,
+                            _ => if b == BigInt::from(0) { return err("division by zero", Some(span.clone())) } else { a / b },
+                        }));
                     }
                 }
                 _ => {}
@@ -868,40 +915,64 @@ impl<'t> Interp<'t> {
         err("unsupported call", Some(span.clone()))
     }
 
-    fn handle_for(&self, entity: &str, id: &[u8], frame: &mut Frame) -> Option<usize> {
-        frame.working.iter().position(|w| w.entity == entity && w.id == id)
+    /// Invoke a helper `fn`: bind params, run the body in its own frame. Working
+    /// entities live in the `World`, so a returned handle stays valid in the
+    /// caller and nested helpers share each other's in-block writes.
+    fn invoke_fn(&self, func: &redstart_parser::ast::FnDecl, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+        if func.params.len() != args.len() {
+            return err(
+                format!("`{}` expects {} argument(s), got {}", func.name.name, func.params.len(), args.len()),
+                Some(span.clone()),
+            );
+        }
+        let mut locals = HashMap::new();
+        for (p, a) in func.params.iter().zip(args) {
+            let v = self.eval(a, world, frame)?;
+            locals.insert(p.name.name.clone(), v);
+        }
+        let mut fnframe = Frame {
+            locals,
+            returned: false,
+            return_value: None,
+        };
+        self.exec_block(&func.body, world, &mut fnframe)?;
+        Ok(fnframe.return_value.unwrap_or(Value::Unit))
+    }
+
+    fn handle_for(&self, entity: &str, id: &[u8], world: &World) -> Option<usize> {
+        world.working.iter().position(|w| w.entity == entity && w.id == id)
     }
 
     fn load_or_create(&self, entity: &str, args: &[Expr], world: &mut World, frame: &mut Frame, _create: bool, span: &Span) -> R<Value> {
         let id = self.eval_id(args, world, frame, span)?;
-        if let Some(h) = self.handle_for(entity, &id, frame) {
+        if let Some(h) = self.handle_for(entity, &id, world) {
             return Ok(Value::Handle(h));
         }
         if let Some(fields) = world.store.get(&(entity.to_string(), id.clone())) {
-            frame.working.push(WorkingEntity { entity: entity.to_string(), id, fields: fields.clone(), dirty: false });
-            return Ok(Value::Handle(frame.working.len() - 1));
+            world.working.push(WorkingEntity { entity: entity.to_string(), id, fields: fields.clone(), dirty: false });
+            return Ok(Value::Handle(world.working.len() - 1));
         }
         // Create with the provided initializers.
         let fields = self.record_fields(args.get(1), world, frame, &id)?;
-        frame.working.push(WorkingEntity { entity: entity.to_string(), id, fields, dirty: true });
-        Ok(Value::Handle(frame.working.len() - 1))
+        world.working.push(WorkingEntity { entity: entity.to_string(), id, fields, dirty: true });
+        Ok(Value::Handle(world.working.len() - 1))
     }
 
     fn create_entity(&self, entity: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
         let id = self.eval_id(args, world, frame, span)?;
         let fields = self.record_fields(args.get(1), world, frame, &id)?;
-        frame.working.push(WorkingEntity { entity: entity.to_string(), id, fields, dirty: true });
-        Ok(Value::Handle(frame.working.len() - 1))
+        world.working.push(WorkingEntity { entity: entity.to_string(), id, fields, dirty: true });
+        Ok(Value::Handle(world.working.len() - 1))
     }
 
     fn load_entity(&self, entity: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
         let id = self.eval_id(args, world, frame, span)?;
-        if let Some(h) = self.handle_for(entity, &id, frame) {
+        if let Some(h) = self.handle_for(entity, &id, world) {
             return Ok(Value::Handle(h));
         }
         if let Some(fields) = world.store.get(&(entity.to_string(), id.clone())) {
-            frame.working.push(WorkingEntity { entity: entity.to_string(), id, fields: fields.clone(), dirty: false });
-            Ok(Value::Handle(frame.working.len() - 1))
+            world.working.push(WorkingEntity { entity: entity.to_string(), id, fields: fields.clone(), dirty: false });
+            Ok(Value::Handle(world.working.len() - 1))
         } else {
             Ok(Value::Null)
         }
@@ -918,7 +989,16 @@ impl<'t> Interp<'t> {
     fn eval_id(&self, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Vec<u8>> {
         let id_expr = args.first().ok_or_else(|| TError { message: "missing id argument".into(), span: Some(span.clone()) })?;
         let v = self.eval(id_expr, world, frame)?;
-        v.as_bytes().ok_or_else(|| TError { message: "entity id must be Bytes/Address".into(), span: Some(id_expr.span().clone()) })
+        // Entity ids may be Bytes/Address, a String (composite ids), or an
+        // integer (Int8 timeseries ids) — all reduce to a stable byte key.
+        match &v {
+            Value::Bytes(b) => Ok(b.clone()),
+            Value::Str(s) => Ok(s.as_bytes().to_vec()),
+            _ => v
+                .to_bigint()
+                .map(|b| b.to_string().into_bytes())
+                .ok_or_else(|| TError { message: "entity id must be Bytes/Address, String, or an integer".into(), span: Some(id_expr.span().clone()) }),
+        }
     }
 
     fn record_fields(&self, arg: Option<&Expr>, world: &mut World, frame: &mut Frame, id: &[u8]) -> R<BTreeMap<String, Value>> {
@@ -929,7 +1009,7 @@ impl<'t> Interp<'t> {
                 let v = self.eval(vexpr, world, frame)?;
                 // Entity-reference fields store the referenced id.
                 let stored = match v {
-                    Value::Handle(h) => Value::Bytes(frame.working[h].id.clone()),
+                    Value::Handle(h) => Value::Bytes(world.working[h].id.clone()),
                     other => other,
                 };
                 fields.insert(k.name.clone(), stored);
@@ -960,6 +1040,11 @@ impl<'t> Interp<'t> {
         }
         if op == BinOp::Ne {
             return Ok(Value::Bool(!value_eq(&l, &r)));
+        }
+
+        // String concatenation (`id = a.toHexString() + "-" + b…`).
+        if op == BinOp::Add && (matches!(l, Value::Str(_)) || matches!(r, Value::Str(_))) {
+            return Ok(Value::Str(format!("{}{}", l.canonical(), r.canonical())));
         }
 
         // Numeric: prefer BigDecimal if either side is decimal, else BigInt.
@@ -1015,8 +1100,8 @@ fn dec_op(op: BinOp, a: BigDecimal, b: BigDecimal, span: &Span) -> R<Value> {
 
 // ---- misc helpers ----
 
-fn flush(frame: &Frame, world: &mut World) {
-    for w in &frame.working {
+fn flush(world: &mut World) {
+    for w in &world.working {
         if w.dirty {
             world.store.insert((w.entity.clone(), w.id.clone()), w.fields.clone());
         }

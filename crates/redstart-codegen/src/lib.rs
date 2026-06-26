@@ -18,9 +18,12 @@ use lower::Env;
 use manifest::ManifestInput;
 use redstart_checker::Checked;
 use redstart_loader::ModuleTree;
+use redstart_checker::{resolve_type, RTy};
 use redstart_parser::ast::{
-    AggregationDecl, EntityDecl, EnumDecl, HandlerDecl, InterfaceDecl, SourceDecl, TemplateDecl,
+    AggregationDecl, EntityDecl, EnumDecl, FnDecl, HandlerDecl, InterfaceDecl, SourceDecl,
+    TemplateDecl,
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// The artifacts produced by a Redstart build.
@@ -72,6 +75,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
     let mut sources: Vec<&SourceDecl> = Vec::new();
     let mut templates: Vec<&TemplateDecl> = Vec::new();
     let mut handlers: Vec<&HandlerDecl> = Vec::new();
+    let mut functions: Vec<&FnDecl> = Vec::new();
 
     for module in tree.ordered() {
         entities.extend(module.program.entities.iter());
@@ -81,6 +85,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
         sources.extend(module.program.sources.iter());
         templates.extend(module.program.templates.iter());
         handlers.extend(module.program.handlers.iter());
+        functions.extend(module.program.functions.iter());
     }
 
     let entity_names: Vec<String> = entities.iter().map(|e| e.name.name.clone()).collect();
@@ -106,13 +111,24 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
 
     // ---- mappings (lowering uses the checked type tables) ----
     let (mappings_src, map_warnings) = {
+        // Resolve each helper's return type so calls to them are typed.
+        let entities_map = checked.entities.clone();
+        let fn_returns: HashMap<String, RTy> = functions
+            .iter()
+            .filter_map(|f| {
+                f.ret
+                    .as_ref()
+                    .map(|t| (f.name.name.clone(), resolve_type(t, &entities_map)))
+            })
+            .collect();
         let mut env = Env {
-            entities: checked.entities.clone(),
+            entities: entities_map,
             source_abi: checked.source_abi.clone(),
             templates: templates.iter().map(|t| t.name.name.clone()).collect(),
+            fn_returns,
             abis: &mut checked.abis,
         };
-        mappings::render(&handlers, &entity_names, &mut env)
+        mappings::render(&handlers, &functions, &entity_names, &mut env)
     };
     warnings.extend(map_warnings);
 
@@ -501,6 +517,42 @@ handler on Token.Transfer(event) {
         assert!(m.contains("let a = acct!"), "got:\n{m}");
         assert!(m.contains("a.balance = a.balance.plus(event.params.value)"), "got:\n{m}");
         assert!(m.contains("a.save()"), "matched entity must auto-save, got:\n{m}");
+        assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
+
+    #[test]
+    fn free_fn_lowers_with_return_flush_and_typed_calls() {
+        let gen = build(
+            r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Account { id: Id<Bytes> balance: BigInt }
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+fn getOrCreateAccount(addr: Bytes) -> Account {
+  let acct = Account.loadOrCreate(addr, { balance: BigInt.zero })
+  return acct
+}
+handler on Token.Transfer(event) {
+  let acct = getOrCreateAccount(event.params.to)
+  acct.balance = acct.balance + event.params.value
+}
+"#,
+            TRANSFER_ABI,
+        );
+        let m = &gen.mappings;
+        // The helper is emitted as a function; its save precedes the `return`.
+        assert!(m.contains("function getOrCreateAccount(addr: Bytes): Account {"), "got:\n{m}");
+        let helper = &m[m.find("function getOrCreateAccount").unwrap()..];
+        let save_pos = helper.find("acct.save()").expect("helper saves");
+        let ret_pos = helper.find("return acct").expect("helper returns");
+        assert!(save_pos < ret_pos, "save must precede return, got:\n{helper}");
+        // The helper's return type flows into the caller: `+` lowers to `.plus()`
+        // and the result auto-saves.
+        assert!(m.contains("acct.balance = acct.balance.plus(event.params.value)"), "got:\n{m}");
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
 }

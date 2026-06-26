@@ -20,9 +20,9 @@
 //! The environment spans *all* modules, so a handler in one `.red` file can
 //! reference an entity declared in another — multi-file is first-class here.
 
-use redstart_checker::{sol_to_rty, AbiIndex, EntityInfo, RTy};
+use redstart_checker::{resolve_type, sol_to_rty, AbiIndex, EntityInfo, RTy};
 use redstart_parser::ast::{
-    BinOp, Block, Expr, ForIter, HandlerDecl, HandlerKind, MatchArm, Pattern, Stmt, UnOp,
+    BinOp, Block, Expr, FnDecl, ForIter, HandlerDecl, HandlerKind, MatchArm, Pattern, Stmt, UnOp,
 };
 use redstart_parser::Ident;
 use std::collections::HashMap;
@@ -35,6 +35,8 @@ pub struct Env<'a> {
     pub source_abi: HashMap<String, String>,
     /// Declared template names (dynamic data sources).
     pub templates: Vec<String>,
+    /// Free-function name -> resolved return type (for typing helper calls).
+    pub fn_returns: HashMap<String, RTy>,
     /// ABI access for event-parameter and function-return types.
     pub abis: &'a mut AbiIndex,
 }
@@ -140,6 +142,60 @@ pub fn lower_handler(handler: &HandlerDecl, env: &mut Env) -> (String, Vec<Strin
     (body, scope.warnings)
 }
 
+/// Lower a free `fn` to a complete AssemblyScript function (signature + body).
+/// Helper functions let real subgraphs stay DRY (`getOrCreateIndexer`, …).
+pub fn lower_fn(func: &FnDecl, env: &mut Env) -> (String, Vec<String>) {
+    let mut scope = Scope {
+        locals: HashMap::new(),
+        event_param: String::new(),
+        param_ty: RTy::Unknown,
+        abi: String::new(),
+        member: String::new(),
+        frames: Vec::new(),
+        tmp: 0,
+        warnings: Vec::new(),
+    };
+
+    let mut sig_params = Vec::new();
+    for p in &func.params {
+        let rty = resolve_type(&p.ty, &env.entities);
+        sig_params.push(format!("{}: {}", p.name.name, rty_to_as(&rty)));
+        scope.declare_local(&p.name.name, rty);
+    }
+    let ret_as = func
+        .ret
+        .as_ref()
+        .map_or_else(|| "void".to_string(), |t| rty_to_as(&resolve_type(t, &env.entities)));
+
+    let mut body = String::new();
+    lower_block(&func.body, env, &mut scope, &mut body, 1);
+
+    let keyword = if func.is_pub { "export function" } else { "function" };
+    let text = format!(
+        "{keyword} {}({}): {ret_as} {{\n{body}}}\n\n",
+        func.name.name,
+        sig_params.join(", ")
+    );
+    (text, scope.warnings)
+}
+
+/// Map a resolved Redstart type to its AssemblyScript spelling.
+fn rty_to_as(ty: &RTy) -> String {
+    match ty {
+        RTy::BigInt => "BigInt".to_string(),
+        RTy::BigDecimal => "BigDecimal".to_string(),
+        RTy::Bytes => "Bytes".to_string(),
+        RTy::Address => "Address".to_string(),
+        RTy::String => "string".to_string(),
+        RTy::Boolean => "bool".to_string(),
+        RTy::Int => "i32".to_string(),
+        RTy::Entity(name) => name.clone(),
+        RTy::Option(inner) => format!("{} | null", rty_to_as(inner)),
+        RTy::List(inner) => format!("Array<{}>", rty_to_as(inner)),
+        _ => "void".to_string(),
+    }
+}
+
 fn indent(level: usize) -> String {
     "  ".repeat(level)
 }
@@ -160,6 +216,18 @@ fn lower_block(block: &Block, env: &mut Env, scope: &mut Scope, out: &mut String
     }
 }
 
+/// Emit `.save()` for every entity currently dirty across all open frames, and
+/// clear them — used before a `return` so saves precede the exit.
+fn flush_all_dirty(scope: &mut Scope, out: &mut String, pad: &str) {
+    let mut names = Vec::new();
+    for frame in &mut scope.frames {
+        names.append(&mut frame.dirty);
+    }
+    for name in names {
+        out.push_str(&format!("{pad}{name}.save()\n"));
+    }
+}
+
 fn lower_stmt(stmt: &Stmt, env: &mut Env, scope: &mut Scope, out: &mut String, level: usize) {
     let pad = indent(level);
     match stmt {
@@ -175,17 +243,27 @@ fn lower_stmt(stmt: &Stmt, env: &mut Env, scope: &mut Scope, out: &mut String, l
                 let ty = infer(value, env, scope);
                 let rhs = lower_expr(value, env, scope);
                 out.push_str(&format!("{pad}let {name} = {rhs}\n"));
-                scope.declare_local(&name.name, ty);
+                // An entity returned from a helper is mutation-tracked so its
+                // writes auto-save, exactly like a `loadOrCreate` local.
+                if let RTy::Entity(e) = &ty {
+                    scope.declare_entity(&name.name, e.clone());
+                } else {
+                    scope.declare_local(&name.name, ty);
+                }
             }
         }
         Stmt::Assign { target, value, .. } => lower_assign(target, value, env, scope, out, level),
-        Stmt::Return { value, .. } => match value {
-            Some(v) => {
-                let r = lower_expr(v, env, scope);
-                out.push_str(&format!("{pad}return {r}\n"));
+        Stmt::Return { value, .. } => {
+            // Flush every pending entity save before leaving — the block-end
+            // auto-save would otherwise be emitted *after* the `return` (dead
+            // code) and the write would be silently lost.
+            let r = value.as_ref().map(|v| lower_expr(v, env, scope));
+            flush_all_dirty(scope, out, &pad);
+            match r {
+                Some(r) => out.push_str(&format!("{pad}return {r}\n")),
+                None => out.push_str(&format!("{pad}return\n")),
             }
-            None => out.push_str(&format!("{pad}return\n")),
-        },
+        }
         Stmt::If {
             cond,
             then_block,
@@ -852,55 +930,62 @@ fn infer_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> RT
 }
 
 fn infer_call(callee: &Expr, env: &mut Env, scope: &mut Scope) -> RTy {
-    if let Expr::Field { base, field, .. } = callee {
-        if let Expr::Path { segments, .. } = base.as_ref() {
-            if segments.len() == 1 {
-                let base_name = &segments[0].name;
-                // `Abi.bind(addr)` -> a bound contract instance.
-                if field.name == "bind" && env.abis.paths.contains_key(base_name) {
-                    return RTy::Contract(base_name.clone());
-                }
-                // `Entity.load(id)` / `loadInBlock(id)` -> Option<Entity> (nullable).
-                if matches!(field.name.as_str(), "load" | "loadInBlock")
-                    && env.entities.contains_key(base_name)
-                {
-                    return RTy::Option(Box::new(RTy::Entity(base_name.clone())));
-                }
-                // `ipfs.cat(hash)` -> Option<Bytes> (the fetch may fail).
-                if base_name == "ipfs" && field.name == "cat" {
-                    return RTy::Option(Box::new(RTy::Bytes));
-                }
+    // A call to a user-declared free function -> its declared return type.
+    if let Expr::Path { segments, .. } = callee {
+        if segments.len() == 1 {
+            if let Some(ret) = env.fn_returns.get(&segments[0].name) {
+                return ret.clone();
             }
         }
-        // `<contract>.method(args)` -> Result<ret, CallRevert>.
-        if let RTy::Contract(abi) = infer(base, env, scope) {
-            if let Some(outputs) = env.abis.function_outputs(&abi, &field.name) {
-                let ret = outputs.first().map_or(RTy::Unknown, |s| sol_to_rty(s));
-                return RTy::Result(Box::new(ret));
+        return RTy::Unknown;
+    }
+
+    let Expr::Field { base, field, .. } = callee else {
+        return RTy::Unknown;
+    };
+
+    if let Expr::Path { segments, .. } = base.as_ref() {
+        if segments.len() == 1 {
+            let base_name = &segments[0].name;
+            // `Abi.bind(addr)` -> a bound contract instance.
+            if field.name == "bind" && env.abis.paths.contains_key(base_name) {
+                return RTy::Contract(base_name.clone());
             }
-        }
-        // graph-ts static constructors: `BigInt.fromI32(x)`, `Address.zero()`, …
-        if let Expr::Path { segments, .. } = base.as_ref() {
-            if segments.len() == 1 {
-                if let Some(ty) = static_ctor_type(&segments[0].name, &field.name) {
-                    return ty;
-                }
+            // `Entity.load(id)` / `loadInBlock(id)` -> Option<Entity> (nullable).
+            if matches!(field.name.as_str(), "load" | "loadInBlock")
+                && env.entities.contains_key(base_name)
+            {
+                return RTy::Option(Box::new(RTy::Entity(base_name.clone())));
             }
-        }
-        // graph-ts instance methods whose return type we know.
-        match field.name.as_str() {
-            "toDecimal" | "toBigDecimal" | "divDecimal" => return RTy::BigDecimal,
-            "toBigInt" => return RTy::BigInt,
-            "toHex" | "toHexString" | "toString" | "toBase58" => return RTy::String,
-            "toI32" | "toU32" => return RTy::Int,
-            // Numeric ops preserve the receiver's type.
-            "abs" | "neg" | "plus" | "minus" | "times" | "div" | "mod" | "pow" | "sqrt"
-            | "bitAnd" | "bitOr" | "leftShift" | "rightShift" => return infer(base, env, scope),
-            "concat" | "concatI32" => return RTy::Bytes,
-            _ => {}
+            // `ipfs.cat(hash)` -> Option<Bytes> (the fetch may fail).
+            if base_name == "ipfs" && field.name == "cat" {
+                return RTy::Option(Box::new(RTy::Bytes));
+            }
+            // graph-ts static constructors: `BigInt.fromI32(x)`, `Address.zero()`, …
+            if let Some(ty) = static_ctor_type(base_name, &field.name) {
+                return ty;
+            }
         }
     }
-    RTy::Unknown
+    // `<contract>.method(args)` -> Result<ret, CallRevert>.
+    if let RTy::Contract(abi) = infer(base, env, scope) {
+        if let Some(outputs) = env.abis.function_outputs(&abi, &field.name) {
+            let ret = outputs.first().map_or(RTy::Unknown, |s| sol_to_rty(s));
+            return RTy::Result(Box::new(ret));
+        }
+    }
+    // graph-ts instance methods whose return type we know.
+    match field.name.as_str() {
+        "toDecimal" | "toBigDecimal" | "divDecimal" => RTy::BigDecimal,
+        "toBigInt" => RTy::BigInt,
+        "toHex" | "toHexString" | "toString" | "toBase58" => RTy::String,
+        "toI32" | "toU32" => RTy::Int,
+        // Numeric ops preserve the receiver's type.
+        "abs" | "neg" | "plus" | "minus" | "times" | "div" | "mod" | "pow" | "sqrt" | "bitAnd"
+        | "bitOr" | "leftShift" | "rightShift" => infer(base, env, scope),
+        "concat" | "concatI32" => RTy::Bytes,
+        _ => RTy::Unknown,
+    }
 }
 
 /// The return type of a known graph-ts static constructor `Type.method(...)`.
