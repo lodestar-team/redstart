@@ -25,6 +25,10 @@ pub struct Diag {
     pub offset: usize,
     /// Byte length of the labelled span.
     pub len: usize,
+    /// 1-indexed line of the labelled span.
+    pub line: usize,
+    /// 1-indexed column of the labelled span.
+    pub col: usize,
 }
 
 impl Diag {
@@ -36,6 +40,7 @@ impl Diag {
         message: impl Into<String>,
         label: impl Into<String>,
     ) -> Self {
+        let (line, col) = span.line_col();
         Self {
             message: message.into(),
             label: label.into(),
@@ -45,6 +50,8 @@ impl Diag {
             file: file.to_string(),
             offset: span.start,
             len: span.len(),
+            line,
+            col,
         }
     }
 
@@ -59,6 +66,19 @@ impl Diag {
     #[must_use]
     pub fn code_str(&self) -> &str {
         &self.code
+    }
+
+    /// The bare diagnostic code (e.g. `E051`), without the `redstart::check::`
+    /// prefix — the form used in `--json` output and `redstart explain`.
+    #[must_use]
+    pub fn code_short(&self) -> &str {
+        self.code.rsplit("::").next().unwrap_or(&self.code)
+    }
+
+    /// The span's label text.
+    #[must_use]
+    pub fn label_str(&self) -> &str {
+        &self.label
     }
 
     /// The help line, if any.
@@ -96,5 +116,24 @@ impl Diagnostic for Diag {
         self.help
             .as_ref()
             .map(|h| Box::new(h.clone()) as Box<dyn fmt::Display>)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn diag_exposes_short_code_and_line_col() {
+        let source: Arc<str> = Arc::from("entity A {\n  id: Id<Bytes>\n}");
+        let span = Span::new(13, 15, Arc::clone(&source)); // on line 2
+        let d = Diag::new("a.red", &span, "E062", "boom", "here").with_help("do x");
+        assert_eq!(d.code_str(), "redstart::check::E062");
+        assert_eq!(d.code_short(), "E062");
+        assert_eq!(d.label_str(), "here");
+        assert_eq!(d.help_str(), Some("do x"));
+        assert_eq!(d.line, 2);
+        assert_eq!(d.col, 3);
     }
 }

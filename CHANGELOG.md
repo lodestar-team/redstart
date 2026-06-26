@@ -6,6 +6,18 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-26
+
+First step of the [2026 roadmap](docs/ROADMAP-2026.md) — agent-native diagnostics.
+
+### Added
+- `redstart check --json` — machine-readable diagnostics for editors and agent
+  loops: `{ "ok": bool, "diagnostics": [ {code, severity, message, label, help,
+  file, line, column, offset, length} ] }` on stdout, non-zero exit when not ok.
+  Lex/parse/resolution failures are emitted too (ANSI stripped). (Roadmap §5.1.)
+- `Diag` now carries 1-indexed `line`/`column` and exposes `code_short()`
+  (e.g. `E062`) and `label_str()`.
+
 ## [0.1.0] - 2026-06-26
 
 Stage 0 — foundations. The first end-to-end vertical slice.

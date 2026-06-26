@@ -30,6 +30,9 @@ enum Command {
         /// Path to a project directory, `redstart.toml`, or a `.red` file.
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// Emit diagnostics as JSON (for editors and agent loops).
+        #[arg(long)]
+        json: bool,
     },
     /// Build a project: emit schema.graphql, subgraph.yaml, and mappings.ts.
     Build {
@@ -93,7 +96,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::New { name } => cmd_new(&name),
-        Command::Check { path } => cmd_check(&path),
+        Command::Check { path, json } => cmd_check(&path, json),
         Command::Build { path } => cmd_build(&path),
         Command::Test { path } => cmd_test(&path),
         Command::Dev { path, once } => cmd_dev(&path, once),
@@ -121,13 +124,20 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(msg) => {
-            eprintln!("{msg}");
+            // An empty message means the command already reported the failure
+            // (e.g. `check --json` printed a JSON diagnostics array to stdout).
+            if !msg.is_empty() {
+                eprintln!("{msg}");
+            }
             ExitCode::FAILURE
         }
     }
 }
 
-fn cmd_check(path: &Path) -> Result<(), String> {
+fn cmd_check(path: &Path, json: bool) -> Result<(), String> {
+    if json {
+        return cmd_check_json(path);
+    }
     let tree = load(path)?;
     check(&tree)?;
     let modules = tree.modules.len();
@@ -146,6 +156,96 @@ fn cmd_check(path: &Path) -> Result<(), String> {
         tree.name
     );
     Ok(())
+}
+
+/// `check --json`: emit a machine-readable diagnostics document to stdout, for
+/// editors and agent loops. Shape: `{ "ok": bool, "diagnostics": [ {code,
+/// severity, message, help, file, line, column, offset, length}, … ] }`.
+/// Exits non-zero (with an empty error, already-reported) when not `ok`.
+fn cmd_check_json(path: &Path) -> Result<(), String> {
+    // Load (lex/parse/resolution) errors first — these block checking.
+    let tree = match redstart_loader::load(path) {
+        Ok(tree) => tree,
+        Err(errors) => {
+            let diags: Vec<_> = errors
+                .iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "severity": "error",
+                        "code": load_error_code(e),
+                        "message": strip_ansi(&e.to_string()),
+                    })
+                })
+                .collect();
+            print_json_doc(false, &diags);
+            return Err(String::new());
+        }
+    };
+
+    let found = redstart_checker::check_diags(&tree);
+    let diags: Vec<_> = found
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "severity": "error",
+                "code": d.code_short(),
+                "message": d.message,
+                "label": d.label_str(),
+                "help": d.help_str(),
+                "file": d.file,
+                "line": d.line,
+                "column": d.col,
+                "offset": d.offset,
+                "length": d.len,
+            })
+        })
+        .collect();
+    let ok = diags.is_empty();
+    print_json_doc(ok, &diags);
+    if ok {
+        Ok(())
+    } else {
+        Err(String::new())
+    }
+}
+
+fn print_json_doc(ok: bool, diagnostics: &[serde_json::Value]) {
+    let doc = serde_json::json!({ "ok": ok, "diagnostics": diagnostics });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{}".into())
+    );
+}
+
+/// A short stage code for a loader error, for `--json` output.
+fn load_error_code(e: &redstart_loader::LoadError) -> &'static str {
+    use redstart_loader::LoadError;
+    match e {
+        LoadError::Lex { .. } => "lex",
+        LoadError::Parse { .. } => "parse",
+        LoadError::CircularDependency { .. } => "cycle",
+        LoadError::ModuleNotFound { .. } | LoadError::AmbiguousModule { .. } => "module",
+        _ => "load",
+    }
+}
+
+/// Strip ANSI escape sequences so rendered reports are clean inside JSON strings.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            // Skip until the terminating letter of the escape (e.g. `m`).
+            for n in chars.by_ref() {
+                if n.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn cmd_build(path: &Path) -> Result<(), String> {

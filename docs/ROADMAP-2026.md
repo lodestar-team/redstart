@@ -255,11 +255,14 @@ detection.
 Redstart should be the language an AI agent *prefers* to write subgraphs in — and
 the one a human falls in love with. These overlap.
 
-### 5.1 🔜 Structured, machine-readable diagnostics (`--json`) — **HIGHEST agent leverage**
-Every diagnostic already has a code (E0xx), span, message, and help. Emit them as
-JSON (`{code, span, message, fix, severity}`) so an agent loop *reads the error and
-applies the fix* without parsing prose. Elm-grade errors aren't just nice for
-humans — they're the agent's feedback signal.
+### 5.1 ✅ Structured, machine-readable diagnostics (`--json`) — **HIGHEST agent leverage**
+`redstart check --json` emits `{ "ok": bool, "diagnostics": [ {code, severity,
+message, label, help, file, line, column, offset, length}, … ] }` to stdout
+(exit non-zero when not `ok`), so an agent loop *reads the error and applies the
+fix* without parsing prose. Lex/parse/resolution failures are emitted too (ANSI
+stripped). Elm-grade errors aren't just nice for humans — they're the agent's
+feedback signal. **Next:** a `fix` field carrying a machine-applicable edit (span
++ replacement) once the auto-fixes in §3–4 land.
 
 ### 5.2 ✅→🔜 Native test interpreter as an in-loop tool
 Already a moat over Matchstick (no Docker/WASM, sub-second). Keep investing: richer
@@ -308,8 +311,9 @@ and `examples/factory`.
 ## 7. Prioritised backlog (the order to actually build)
 
 **P0 — proves the bet / unblocks everything**
-1. Store-diff conformance gate, green, in CI (§6)
-2. `--json` diagnostics + error-code docs (§5.1, §5.5) — unblocks the agent loop
+1. Store-diff conformance gate, green, in CI (§6) — *workflow wired
+   (`conformance-storediff.yml`), awaiting an `RPC_URL` secret + Docker runner*
+2. ✅ `--json` diagnostics (§5.1) — done in v0.2.0. Error-code docs (§5.5) next.
 3. `redstart new --from 0x<address>` (§5.4) — the adoption on-ramp
 
 **P1 — the headline differentiators (lever 1 + 2)**

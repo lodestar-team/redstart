@@ -37,3 +37,34 @@ redstart test examples/erc20
 
 Because the runner is native, the inner loop is near-instant — pair it with
 `redstart dev` to re-run check → build → test on every save.
+
+## Machine-readable diagnostics
+
+For editors and AI-agent loops, `redstart check --json` emits diagnostics as
+JSON instead of prose:
+
+```sh
+redstart check --json
+```
+
+```json
+{
+  "ok": false,
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "E062",
+      "message": "…",
+      "help": "…",
+      "file": "src/main.red",
+      "line": 12,
+      "column": 5,
+      "offset": 240,
+      "length": 7
+    }
+  ]
+}
+```
+
+The process exits non-zero when `ok` is false, so an agent can read the error,
+apply the fix from `help`, and re-run — without parsing terminal output.
