@@ -1,0 +1,254 @@
+import Link from "next/link";
+import { Reveal } from "@/components/reveal";
+import { CodeBlock } from "@/components/code";
+import { FileTabs } from "@/components/file-tabs";
+import { Star } from "@/components/logo";
+import {
+  REDSTART_ERC20,
+  AS_MAPPINGS,
+  AS_SCHEMA,
+  AS_MANIFEST,
+} from "@/lib/samples";
+
+const REPO = "https://github.com/lodestar-team/redstart";
+
+const FOOTGUNS = [
+  {
+    t: "Forgotten .save()",
+    d: "Entities are dirty-tracked and flushed at handler end. The most common subgraph bug isn't expressible.",
+  },
+  {
+    t: "Arithmetic on null",
+    d: "There is no null — only Option<T>. Maths on a maybe-absent value is a compile error, not a silent miscompile.",
+  },
+  {
+    t: "Reverted calls aborting",
+    d: "Contract calls return Result. You must match before touching the value, so a revert can't kill the handler.",
+  },
+  {
+    t: "Manifest / ABI drift",
+    d: "Event signatures are derived from the ABI by reference. Rename an event and it's a compile error.",
+  },
+  {
+    t: "Writing derived fields",
+    d: "@derivedFrom fields are read-only by construction. Assigning to one doesn't type-check.",
+  },
+  {
+    t: "== vs === inversion",
+    d: "One equality, lowered correctly every time. The classic AssemblyScript footgun is gone.",
+  },
+];
+
+export default function Home() {
+  return (
+    <>
+      {/* ---- Hero ---- */}
+      <section className="relative overflow-hidden border-b border-line">
+        <div className="grid-lines pointer-events-none absolute inset-0 opacity-60" />
+        <div className="relative mx-auto max-w-6xl px-5 pb-20 pt-20 sm:pt-28">
+          <Reveal>
+            <span className="tag">
+              <Star className="h-3 w-3" />
+              Stage 0 · public good for The Graph
+            </span>
+          </Reveal>
+          <Reveal i={1}>
+            <h1 className="display mt-6 max-w-3xl text-5xl sm:text-7xl">
+              Write the subgraph once.
+              <br />
+              <span className="italic text-red">Not three times.</span>
+            </h1>
+          </Reveal>
+          <Reveal i={2}>
+            <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted">
+              A subgraph is three files held together by stringly-typed names.
+              Redstart unifies schema, manifest, and mappings into one typed
+              language — then transpiles to AssemblyScript the canonical
+              toolchain compiles unmodified.
+            </p>
+          </Reveal>
+          <Reveal i={3}>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Link href="/playground" className="btn">
+                Open the playground
+                <span aria-hidden>→</span>
+              </Link>
+              <a href={REPO} className="btn btn-ghost">
+                View on GitHub
+              </a>
+            </div>
+          </Reveal>
+          <Reveal i={4}>
+            <div className="mt-6 inline-flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-2.5 font-mono text-sm text-ink-soft">
+              <span className="text-faint">$</span>
+              <span>curl -fsSL redstart-lang.com/install.sh | sh</span>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ---- Would you rather maintain this — or this? ---- */}
+      <section className="border-b border-line">
+        <div className="mx-auto max-w-6xl px-5 py-24">
+          <Reveal>
+            <p className="eyebrow">The pitch</p>
+            <h2 className="display mt-3 max-w-2xl text-4xl sm:text-5xl">
+              Would you rather write &amp; maintain this —
+            </h2>
+          </Reveal>
+
+          <div className="mt-12 grid items-start gap-6 lg:grid-cols-2">
+            <Reveal i={1} className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-2 text-sm font-medium">
+                  <Star className="h-4 w-4 text-red" /> Redstart
+                </span>
+                <span className="font-mono text-xs text-faint">
+                  1 file · drift impossible
+                </span>
+              </div>
+              <CodeBlock code={REDSTART_ERC20} lang="red" filename="token.red" />
+            </Reveal>
+
+            <Reveal i={2} className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-muted">
+                  …or these three, kept in sync by hand?
+                </span>
+                <span className="font-mono text-xs text-faint">
+                  3 files · names must agree
+                </span>
+              </div>
+              <FileTabs
+                className="min-h-[360px]"
+                files={[
+                  { name: "mappings.ts", lang: "ts", code: AS_MAPPINGS },
+                  { name: "schema.graphql", lang: "graphql", code: AS_SCHEMA },
+                  { name: "subgraph.yaml", lang: "yaml", code: AS_MANIFEST },
+                ]}
+              />
+            </Reveal>
+          </div>
+          <Reveal i={3}>
+            <p className="mt-8 max-w-2xl text-muted">
+              Both produce the same store. Only one of them can&apos;t drift,
+              can&apos;t forget a{" "}
+              <code className="font-mono text-ink-soft">.save()</code>, and
+              can&apos;t let a renamed event compile. The AssemblyScript on the
+              right is the genuine hand-written reference from our conformance
+              suite — not a strawman.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ---- Footguns ---- */}
+      <section className="border-b border-line">
+        <div className="mx-auto max-w-6xl px-5 py-24">
+          <Reveal>
+            <p className="eyebrow">Unrepresentable by construction</p>
+            <h2 className="display mt-3 max-w-2xl text-4xl sm:text-5xl">
+              A whole class of bugs you can&apos;t write.
+            </h2>
+          </Reveal>
+          <div className="mt-12 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+            {FOOTGUNS.map((f, i) => (
+              <Reveal key={f.t} i={i % 3} as="article" className="bg-surface p-7">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <span className="font-mono text-red">✕</span>
+                  {f.t}
+                </div>
+                <p className="mt-2.5 text-sm leading-relaxed text-muted">
+                  {f.d}
+                </p>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---- Eject path ---- */}
+      <section className="border-b border-line">
+        <div className="mx-auto grid max-w-6xl gap-12 px-5 py-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
+          <Reveal>
+            <p className="eyebrow">No lock-in</p>
+            <h2 className="display mt-3 text-4xl sm:text-5xl">
+              The eject path is the whole bet.
+            </h2>
+            <p className="mt-5 max-w-lg leading-relaxed text-muted">
+              <code className="font-mono text-ink-soft">redstart build</code>{" "}
+              emits the exact files a hand-written subgraph has — readable,
+              idiomatic AssemblyScript and GraphQL that{" "}
+              <code className="font-mono text-ink-soft">graph build</code>{" "}
+              compiles unmodified. Walk away whenever you like; you keep the
+              generated code, and it keeps working.
+            </p>
+            <p className="mt-4 max-w-lg leading-relaxed text-muted">
+              That claim is continuously checked: a field-level store-diff
+              against independently hand-written subgraphs is the project&apos;s
+              stated kill/pivot gate.
+            </p>
+          </Reveal>
+          <Reveal i={1}>
+            <div className="card p-7 font-mono text-sm">
+              <div className="flex items-center gap-2 text-ink">
+                <Star className="h-3.5 w-3.5 text-red" /> token.red
+              </div>
+              <div className="my-4 ml-1.5 border-l border-line pl-5 text-faint">
+                <div className="relative">
+                  <span className="absolute -left-[1.42rem] text-red">↓</span>
+                  redstart build
+                </div>
+              </div>
+              <div className="grid gap-2 text-ink-soft">
+                <div className="rounded-md border border-line bg-[#f9f9f8] px-3 py-2">
+                  schema.graphql
+                </div>
+                <div className="rounded-md border border-line bg-[#f9f9f8] px-3 py-2">
+                  subgraph.yaml
+                </div>
+                <div className="rounded-md border border-line bg-[#f9f9f8] px-3 py-2">
+                  src/mappings.ts
+                </div>
+              </div>
+              <div className="my-4 ml-1.5 border-l border-line pl-5 text-faint">
+                <div className="relative">
+                  <span className="absolute -left-[1.42rem] text-red">↓</span>
+                  graph codegen · graph build
+                </div>
+              </div>
+              <div className="rounded-md bg-ink px-3 py-2 text-center text-white">
+                compiles unmodified → WASM
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ---- Final CTA ---- */}
+      <section>
+        <div className="mx-auto max-w-6xl px-5 py-28 text-center">
+          <Reveal>
+            <Star className="mx-auto h-8 w-8 text-red" />
+            <h2 className="display mx-auto mt-6 max-w-2xl text-4xl sm:text-6xl">
+              See the drift disappear.
+            </h2>
+            <p className="mx-auto mt-5 max-w-md text-muted">
+              The playground runs the real compiler in your browser. Type
+              Redstart, watch the three files generate live.
+            </p>
+            <div className="mt-8 flex justify-center gap-3">
+              <Link href="/playground" className="btn">
+                Open the playground
+                <span aria-hidden>→</span>
+              </Link>
+              <a href={REPO} className="btn btn-ghost">
+                Read the source
+              </a>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+    </>
+  );
+}

@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+/* ---- Design tokens (editorial minimalism; one red accent) ---- */
+@theme {
+  --color-canvas: #fbfbfa;
+  --color-surface: #ffffff;
+  --color-ink: #1a1a1a;
+  --color-ink-soft: #2f3437;
+  --color-muted: #787774;
+  --color-faint: #9a9a96;
+  --color-line: #e8e7e3;
+  --color-line-soft: rgba(0, 0, 0, 0.06);
+
+  /* Redstart's star — a warm vermilion, never neon. */
+  --color-red: #d6492f;
+  --color-red-ink: #9f2f2d;
+  --color-red-wash: #fdebec;
+
+  --font-sans: var(--font-geist-sans), "Helvetica Neue", sans-serif;
+  --font-mono: var(--font-geist-mono), "SF Mono", monospace;
+  --font-serif: var(--font-serif), "Newsreader", Georgia, serif;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--color-red-wash);
+    color: var(--color-red-ink);
+  }
+}
+
+@layer components {
+  /* Serif editorial display */
+  .display {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+
+  /* Eyebrow / section label */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+
+  /* Pill tag */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 9999px;
+    padding: 0.25rem 0.7rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    background: var(--color-red-wash);
+    color: var(--color-red-ink);
+  }
+
+  /* Primary button — solid ink */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 6px;
+    padding: 0.62rem 1.1rem;
+    font-size: 0.92rem;
+    font-weight: 500;
+    background: var(--color-ink);
+    color: #fff;
+    transition:
+      transform 0.2s var(--ease-out),
+      background 0.2s var(--ease-out);
+  }
+  .btn:hover {
+    background: #000;
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-ink);
+    border: 1px solid var(--color-line);
+  }
+  .btn-ghost:hover {
+    background: var(--color-surface);
+    border-color: #d8d7d2;
+  }
+
+  /* Card */
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+  }
+
+  kbd {
+    font-family: var(--font-mono);
+    font-size: 0.78em;
+    border: 1px solid var(--color-line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: #f7f6f3;
+    padding: 0.05em 0.4em;
+    color: var(--color-ink-soft);
+  }
+
+  /* Syntax tokens — restrained, one accent */
+  .tok-comment {
+    color: #9a9a96;
+    font-style: italic;
+  }
+  .tok-kw {
+    color: var(--color-red-ink);
+  }
+  .tok-type {
+    color: #1f6c9f;
+  }
+  .tok-str {
+    color: #346538;
+  }
+  .tok-num {
+    color: #956400;
+  }
+}
+
+@layer utilities {
+  /* Scroll reveal — transform + opacity only */
+  .reveal {
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity 0.6s var(--ease-out),
+      transform 0.6s var(--ease-out);
+    transition-delay: calc(var(--i, 0) * 70ms);
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  /* Hairline grid backdrop */
+  .grid-lines {
+    background-image:
+      linear-gradient(var(--color-line-soft) 1px, transparent 1px),
+      linear-gradient(90deg, var(--color-line-soft) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+}
