@@ -7,6 +7,7 @@ members = [
     "crates/redstart-test",
     "crates/redstart-lsp",
     "crates/redstart-cli",
+    "crates/redstart-wasm",
 ]
 resolver = "2"
 

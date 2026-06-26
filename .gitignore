@@ -9,6 +9,10 @@
 # mdBook render output
 /docs/book/book/
 
+# wasm-pack output (playground engine — built in CI)
+/playground/pkg/
+/crates/redstart-wasm/pkg/
+
 # Node
 node_modules/
 *.vsix

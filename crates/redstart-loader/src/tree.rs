@@ -92,6 +92,51 @@ pub fn load_with_overlay(
     load_project(path, overlay)
 }
 
+/// Build a single-module [`ModuleTree`] from an in-memory source string, with no
+/// filesystem access. `mod` declarations are ignored (this is single-file only).
+/// Used by the WASM playground, where there is no disk to read from.
+///
+/// # Errors
+/// Returns lex or parse errors encountered in the source.
+pub fn load_str(name: &str, source: &str) -> Result<ModuleTree, Vec<LoadError>> {
+    let filename = format!("{name}.red");
+    let file = PathBuf::from(&filename);
+    let source_arc: Arc<str> = Arc::from(source);
+
+    let lexed = lex_named(source, &filename).map_err(|e| {
+        vec![LoadError::Lex {
+            file: file.clone(),
+            report: render(&e),
+        }]
+    })?;
+    let (program, parse_errors) = parse(lexed.tokens(), Arc::clone(&source_arc));
+    if !parse_errors.is_empty() {
+        let bundle = ParseErrors::new(&filename, source.to_string(), parse_errors);
+        return Err(vec![LoadError::Parse {
+            file,
+            report: render(&bundle),
+        }]);
+    }
+
+    let mut modules = HashMap::new();
+    modules.insert(
+        Vec::new(),
+        ParsedModule {
+            path: Vec::new(),
+            file_path: file,
+            source: source_arc,
+            program,
+        },
+    );
+    Ok(ModuleTree {
+        modules,
+        project_root: PathBuf::from("."),
+        name: name.to_string(),
+        description: None,
+        out_dir: PathBuf::from("build"),
+    })
+}
+
 /// Load a single `.red` file with no surrounding project.
 fn load_single_file(
     path: &Path,

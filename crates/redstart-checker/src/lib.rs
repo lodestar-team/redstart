@@ -49,7 +49,19 @@ pub struct Checked {
 /// # Errors
 /// Returns the rendered diagnostics if any check fails.
 pub fn check(tree: &ModuleTree) -> Result<Checked, Vec<String>> {
-    let (checked, diags) = analyze(tree);
+    check_with_abis(tree, &HashMap::new())
+}
+
+/// Like [`check`], but with ABIs supplied in-memory (name -> JSON) rather than
+/// read from disk. Used by the WASM playground, which has no filesystem.
+///
+/// # Errors
+/// Returns the rendered diagnostics if any check fails.
+pub fn check_with_abis(
+    tree: &ModuleTree,
+    abi_texts: &HashMap<String, String>,
+) -> Result<Checked, Vec<String>> {
+    let (checked, diags) = analyze(tree, abi_texts);
     if diags.is_empty() {
         Ok(checked)
     } else {
@@ -61,10 +73,10 @@ pub fn check(tree: &ModuleTree) -> Result<Checked, Vec<String>> {
 /// Used by the language server to publish editor squiggles.
 #[must_use]
 pub fn check_diags(tree: &ModuleTree) -> Vec<Diag> {
-    analyze(tree).1
+    analyze(tree, &HashMap::new()).1
 }
 
-fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
+fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, Vec<Diag>) {
     let mut diags: Vec<Diag> = Vec::new();
 
     // ---- gather modules with their filenames ----
@@ -84,6 +96,10 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
         for a in &m.program.abis {
             abis.insert(a.name.name.clone(), resolve_abi_path(dir, &a.path));
         }
+    }
+    // In-memory ABIs (the WASM playground) take precedence over disk paths.
+    for (name, json) in abi_texts {
+        abis.insert_text(name.clone(), json.clone());
     }
 
     // Entity names (first pass), checking duplicates.

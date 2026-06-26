@@ -25,6 +25,9 @@ pub struct EventParam {
 pub struct AbiIndex {
     /// Map from ABI name to the resolved JSON path on disk.
     pub paths: HashMap<String, PathBuf>,
+    /// In-memory ABI JSON, keyed by name. Preferred over `paths` when present —
+    /// this is how the WASM playground (no filesystem) supplies ABIs.
+    texts: HashMap<String, String>,
     /// Cache of decoded event parameter lists, keyed by `(abi_name, event_name)`.
     cache: HashMap<(String, String), Option<Vec<EventParam>>>,
 }
@@ -33,6 +36,21 @@ impl AbiIndex {
     /// Register an ABI name with a resolved path.
     pub fn insert(&mut self, name: String, path: PathBuf) {
         self.paths.insert(name, path);
+    }
+
+    /// Register an ABI name with its JSON contents directly (no filesystem).
+    pub fn insert_text(&mut self, name: String, json: String) {
+        self.texts.insert(name, json);
+    }
+
+    /// The raw ABI JSON for `abi_name`: in-memory text if registered, else read
+    /// from the resolved path. Returns `None` if neither is available.
+    fn json_text(&self, abi_name: &str) -> Option<String> {
+        if let Some(text) = self.texts.get(abi_name) {
+            return Some(text.clone());
+        }
+        let path = self.paths.get(abi_name)?;
+        std::fs::read_to_string(path).ok()
     }
 
     /// The decoded parameters for `event_name` in ABI `abi_name`, cached.
@@ -66,9 +84,7 @@ impl AbiIndex {
     /// Lets the checker distinguish "event missing from ABI" (error) from
     /// "ABI file not available" (can't check — stay quiet).
     pub fn readable(&self, abi_name: &str) -> bool {
-        self.paths
-            .get(abi_name)
-            .and_then(|p| std::fs::read_to_string(p).ok())
+        self.json_text(abi_name)
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .is_some_and(|v| v.is_array())
     }
@@ -102,8 +118,7 @@ impl AbiIndex {
         name: &str,
         which: &str,
     ) -> Option<Vec<EventParam>> {
-        let path = self.paths.get(abi_name)?;
-        let text = std::fs::read_to_string(path).ok()?;
+        let text = self.json_text(abi_name)?;
         let json: serde_json::Value = serde_json::from_str(&text).ok()?;
         for item in json.as_array()? {
             if item.get("type").and_then(|t| t.as_str()) != Some("function") {
@@ -147,8 +162,7 @@ impl AbiIndex {
 
     /// The Solidity output types of function `name` in ABI `abi_name`, if any.
     pub fn function_outputs(&self, abi_name: &str, name: &str) -> Option<Vec<String>> {
-        let path = self.paths.get(abi_name)?;
-        let text = std::fs::read_to_string(path).ok()?;
+        let text = self.json_text(abi_name)?;
         let json: serde_json::Value = serde_json::from_str(&text).ok()?;
         for item in json.as_array()? {
             if item.get("type").and_then(|t| t.as_str()) != Some("function") {
@@ -174,8 +188,7 @@ impl AbiIndex {
     }
 
     fn read_event(&self, abi_name: &str, event_name: &str) -> Option<Vec<EventParam>> {
-        let path = self.paths.get(abi_name)?;
-        let text = std::fs::read_to_string(path).ok()?;
+        let text = self.json_text(abi_name)?;
         let json: serde_json::Value = serde_json::from_str(&text).ok()?;
         let items = json.as_array()?;
 

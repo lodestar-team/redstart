@@ -36,15 +36,24 @@ jobs:
       - name: Build the book
         run: mdbook build docs/book
 
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Build the playground
+        run: ./playground/build.sh
+
       - name: Assemble site
         run: |
-          mkdir -p _site
+          mkdir -p _site/playground
           cp -r docs/book/book/. _site/
-          # The playground (if built into playground/dist) is served at /playground.
-          if [ -d playground/dist ]; then
-            mkdir -p _site/playground
-            cp -r playground/dist/. _site/playground/
-          fi
+          cp playground/index.html playground/app.js playground/style.css _site/playground/
+          cp -r playground/pkg _site/playground/pkg
 
       - uses: actions/upload-pages-artifact@v3
         with:

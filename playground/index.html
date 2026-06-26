@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Redstart Playground</title>
+  <meta name="description" content="Write Redstart, see the AssemblyScript, schema, and manifest it generates — live, in your browser." />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">★</span>
+      <div>
+        <h1>Redstart Playground</h1>
+        <p>One source of truth in; <code>schema.graphql</code> + <code>subgraph.yaml</code> + <code>mappings.ts</code> out.</p>
+      </div>
+    </div>
+    <a class="repo" href="https://github.com/lodestar-team/redstart" target="_blank" rel="noopener">GitHub ↗</a>
+  </header>
+
+  <main>
+    <section class="pane">
+      <div class="pane-head">
+        <span>source.red</span>
+        <span class="status" id="status">ready</span>
+      </div>
+      <textarea id="source" spellcheck="false" autocomplete="off"></textarea>
+    </section>
+
+    <section class="pane">
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-target="mappings">mappings.ts</button>
+        <button class="tab" data-target="schema">schema.graphql</button>
+        <button class="tab" data-target="manifest">subgraph.yaml</button>
+        <button class="tab" data-target="diagnostics" id="diag-tab">diagnostics</button>
+      </div>
+      <pre class="output" id="out-mappings"></pre>
+      <pre class="output hidden" id="out-schema"></pre>
+      <pre class="output hidden" id="out-manifest"></pre>
+      <pre class="output hidden" id="out-diagnostics"></pre>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

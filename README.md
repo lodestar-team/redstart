@@ -125,6 +125,14 @@ straight from the [latest release](https://github.com/lodestar-team/redstart/rel
 The commands below use `cargo run` against a checkout; with `redstart` installed,
 substitute `redstart <cmd>`.
 
+## Playground
+
+Try Redstart in your browser — write `.red` on the left, watch the generated
+`mappings.ts` / `schema.graphql` / `subgraph.yaml` regenerate as you type:
+**[lodestar-team.github.io/redstart/playground](https://lodestar-team.github.io/redstart/playground/)**.
+It runs the real compiler (loader → checker → codegen) compiled to WebAssembly —
+no server, no install. Build it locally with `./playground/build.sh`.
+
 ## Try it
 
 ```sh
