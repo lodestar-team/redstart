@@ -61,7 +61,9 @@ impl Backend {
         // 1. Per-file lex/parse diagnostics (immediate, even on broken input).
         for (uri, text) in &docs {
             for (off, len, msg) in parse_lex_diags(text) {
-                out.entry(uri.clone()).or_default().push(diagnostic(text, off, len, msg));
+                out.entry(uri.clone())
+                    .or_default()
+                    .push(diagnostic(text, off, len, msg));
             }
         }
 
@@ -76,7 +78,9 @@ impl Backend {
                             if let Some(h) = d.help_str() {
                                 msg.push_str(&format!(" — {h}"));
                             }
-                            out.entry(uri).or_default().push(diagnostic(&text, d.offset, d.len, msg));
+                            out.entry(uri)
+                                .or_default()
+                                .push(diagnostic(&text, d.offset, d.len, msg));
                         }
                     }
                 }
@@ -106,7 +110,9 @@ impl LanguageServer for Backend {
                 version: Some(env!("CARGO_PKG_VERSION").into()),
             }),
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -118,7 +124,9 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client.log_message(MessageType::INFO, "redstart-lsp ready").await;
+        self.client
+            .log_message(MessageType::INFO, "redstart-lsp ready")
+            .await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -139,7 +147,9 @@ impl LanguageServer for Backend {
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.docs.lock().unwrap().remove(&params.text_document.uri);
-        self.client.publish_diagnostics(params.text_document.uri, Vec::new(), None).await;
+        self.client
+            .publish_diagnostics(params.text_document.uri, Vec::new(), None)
+            .await;
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
@@ -157,22 +167,33 @@ impl LanguageServer for Backend {
         }]))
     }
 
-    async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
         let Some(text) = self.get_doc(&params.text_document.uri) else {
             return Ok(None);
         };
         let program = parse_doc(&text);
-        Ok(Some(DocumentSymbolResponse::Nested(symbols(&program, &text))))
+        Ok(Some(DocumentSymbolResponse::Nested(symbols(
+            &program, &text,
+        ))))
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
-        let Some(text) = self.get_doc(&uri) else { return Ok(None) };
+        let Some(text) = self.get_doc(&uri) else {
+            return Ok(None);
+        };
         let offset = to_offset(&text, pos);
-        let Some(word) = word_at(&text, offset) else { return Ok(None) };
+        let Some(word) = word_at(&text, offset) else {
+            return Ok(None);
+        };
         let program = parse_doc(&text);
-        let Some(desc) = describe(&word, &program) else { return Ok(None) };
+        let Some(desc) = describe(&word, &program) else {
+            return Ok(None);
+        };
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
@@ -182,12 +203,19 @@ impl LanguageServer for Backend {
         }))
     }
 
-    async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let pos = params.text_document_position_params.position;
-        let Some(text) = self.get_doc(&uri) else { return Ok(None) };
+        let Some(text) = self.get_doc(&uri) else {
+            return Ok(None);
+        };
         let offset = to_offset(&text, pos);
-        let Some(word) = word_at(&text, offset) else { return Ok(None) };
+        let Some(word) = word_at(&text, offset) else {
+            return Ok(None);
+        };
 
         let docs = self.snapshot();
         if let Some(root) = find_root(&docs) {
@@ -198,7 +226,9 @@ impl LanguageServer for Backend {
                             let mtext = text_for(&def_uri, &docs)
                                 .unwrap_or_else(|| module.source.to_string());
                             let range = to_range(&mtext, span.0, span.1);
-                            return Ok(Some(GotoDefinitionResponse::Scalar(Location::new(def_uri, range))));
+                            return Ok(Some(GotoDefinitionResponse::Scalar(Location::new(
+                                def_uri, range,
+                            ))));
                         }
                     }
                 }
@@ -208,7 +238,9 @@ impl LanguageServer for Backend {
         let program = parse_doc(&text);
         if let Some((off, len)) = find_decl(&program, &word) {
             let range = to_range(&text, off, len);
-            return Ok(Some(GotoDefinitionResponse::Scalar(Location::new(uri, range))));
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location::new(
+                uri, range,
+            ))));
         }
         Ok(None)
     }
@@ -241,7 +273,13 @@ fn parse_lex_diags(text: &str) -> Vec<(usize, usize, String)> {
         Err(e) => e
             .errors
             .iter()
-            .map(|l| (l.start, l.end - l.start, format!("invalid token `{}`", l.text)))
+            .map(|l| {
+                (
+                    l.start,
+                    l.end - l.start,
+                    format!("invalid token `{}`", l.text),
+                )
+            })
             .collect(),
         Ok(lexed) => {
             let (_program, errs) = parse(lexed.tokens(), Arc::from(text));
@@ -276,10 +314,34 @@ fn find_decl(program: &Program, name: &str) -> Option<(usize, usize)> {
         .iter()
         .find(|e| e.name.name == name)
         .map(|e| s(&e.name))
-        .or_else(|| program.sources.iter().find(|x| x.name.name == name).map(|x| s(&x.name)))
-        .or_else(|| program.templates.iter().find(|x| x.name.name == name).map(|x| s(&x.name)))
-        .or_else(|| program.abis.iter().find(|x| x.name.name == name).map(|x| s(&x.name)))
-        .or_else(|| program.functions.iter().find(|x| x.name.name == name).map(|x| s(&x.name)))
+        .or_else(|| {
+            program
+                .sources
+                .iter()
+                .find(|x| x.name.name == name)
+                .map(|x| s(&x.name))
+        })
+        .or_else(|| {
+            program
+                .templates
+                .iter()
+                .find(|x| x.name.name == name)
+                .map(|x| s(&x.name))
+        })
+        .or_else(|| {
+            program
+                .abis
+                .iter()
+                .find(|x| x.name.name == name)
+                .map(|x| s(&x.name))
+        })
+        .or_else(|| {
+            program
+                .functions
+                .iter()
+                .find(|x| x.name.name == name)
+                .map(|x| s(&x.name))
+        })
 }
 
 fn describe(word: &str, program: &Program) -> Option<String> {
@@ -332,7 +394,11 @@ fn completions(program: &Program) -> Vec<CompletionItem> {
 
 fn symbols(program: &Program, text: &str) -> Vec<DocumentSymbol> {
     let mut out = Vec::new();
-    let mut push = |name: String, detail: &str, kind: SymbolKind, span: &redstart_parser::Span, nspan: &redstart_parser::Span| {
+    let mut push = |name: String,
+                    detail: &str,
+                    kind: SymbolKind,
+                    span: &redstart_parser::Span,
+                    nspan: &redstart_parser::Span| {
         #[allow(deprecated)]
         out.push(DocumentSymbol {
             name,
@@ -346,22 +412,58 @@ fn symbols(program: &Program, text: &str) -> Vec<DocumentSymbol> {
         });
     };
     for a in &program.abis {
-        push(a.name.name.clone(), "abi", SymbolKind::NAMESPACE, &a.span, &a.name.span);
+        push(
+            a.name.name.clone(),
+            "abi",
+            SymbolKind::NAMESPACE,
+            &a.span,
+            &a.name.span,
+        );
     }
     for e in &program.entities {
-        push(e.name.name.clone(), "entity", SymbolKind::CLASS, &e.span, &e.name.span);
+        push(
+            e.name.name.clone(),
+            "entity",
+            SymbolKind::CLASS,
+            &e.span,
+            &e.name.span,
+        );
     }
     for s in &program.sources {
-        push(s.name.name.clone(), "source", SymbolKind::STRUCT, &s.span, &s.name.span);
+        push(
+            s.name.name.clone(),
+            "source",
+            SymbolKind::STRUCT,
+            &s.span,
+            &s.name.span,
+        );
     }
     for t in &program.templates {
-        push(t.name.name.clone(), "template", SymbolKind::STRUCT, &t.span, &t.name.span);
+        push(
+            t.name.name.clone(),
+            "template",
+            SymbolKind::STRUCT,
+            &t.span,
+            &t.name.span,
+        );
     }
     for h in &program.handlers {
-        push(format!("handle{}", h.event.name), "handler", SymbolKind::FUNCTION, &h.span, &h.event.span);
+        push(
+            format!("handle{}", h.event.name),
+            "handler",
+            SymbolKind::FUNCTION,
+            &h.span,
+            &h.event.span,
+        );
     }
     for f in &program.functions {
-        push(f.name.name.clone(), "fn", SymbolKind::FUNCTION, &f.span, &f.name.span);
+        push(
+            f.name.name.clone(),
+            "fn",
+            SymbolKind::FUNCTION,
+            &f.span,
+            &f.name.span,
+        );
     }
     out
 }
@@ -398,7 +500,9 @@ fn text_for(uri: &Url, docs: &HashMap<Url, String>) -> Option<String> {
     if let Some(t) = docs.get(uri) {
         return Some(t.clone());
     }
-    uri.to_file_path().ok().and_then(|p| std::fs::read_to_string(p).ok())
+    uri.to_file_path()
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
 }
 
 // ---- position conversion (byte offset <-> UTF-16 LSP position) ----
@@ -468,9 +572,43 @@ fn word_at(text: &str, offset: usize) -> Option<String> {
 }
 
 const KEYWORDS: &[&str] = &[
-    "abi", "from", "entity", "enum", "interface", "implements", "aggregation", "over", "source", "template", "handler", "on", "derived",
-    "match", "let", "return", "if", "else", "while", "for", "in", "fn", "mod",
-    "use", "test", "true", "false",
+    "abi",
+    "from",
+    "entity",
+    "enum",
+    "interface",
+    "implements",
+    "aggregation",
+    "over",
+    "source",
+    "template",
+    "handler",
+    "on",
+    "derived",
+    "match",
+    "let",
+    "return",
+    "if",
+    "else",
+    "while",
+    "for",
+    "in",
+    "fn",
+    "mod",
+    "use",
+    "test",
+    "true",
+    "false",
 ];
-const SCALARS: &[&str] = &["BigInt", "BigDecimal", "Bytes", "Address", "String", "Bool", "Int", "Int8", "Timestamp"];
+const SCALARS: &[&str] = &[
+    "BigInt",
+    "BigDecimal",
+    "Bytes",
+    "Address",
+    "String",
+    "Bool",
+    "Int",
+    "Int8",
+    "Timestamp",
+];
 const GENERICS: &[&str] = &["Option", "Result", "Id", "List"];

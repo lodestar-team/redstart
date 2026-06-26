@@ -201,9 +201,8 @@ fn unknown_contract_function_is_rejected() {
 
 #[test]
 fn derived_backref_must_exist() {
-    let src = format!(
-        "{PREAMBLE}\nentity Pool {{ id: Id<Bytes> accs: [Account] derived from nope }}\n"
-    );
+    let src =
+        format!("{PREAMBLE}\nentity Pool {{ id: Id<Bytes> accs: [Account] derived from nope }}\n");
     assert_err_contains(run(&src), "has no field `nope`");
 }
 

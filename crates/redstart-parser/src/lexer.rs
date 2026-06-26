@@ -197,10 +197,7 @@ mod tests {
     fn comments_are_skipped() {
         let toks = lex("entity // a line comment\n Pool /* block */ {").unwrap();
         let kinds: Vec<_> = toks.tokens().iter().map(|s| s.token).collect();
-        assert_eq!(
-            kinds,
-            vec![Token::KwEntity, Token::Ident, Token::LBrace]
-        );
+        assert_eq!(kinds, vec![Token::KwEntity, Token::Ident, Token::LBrace]);
     }
 
     #[test]

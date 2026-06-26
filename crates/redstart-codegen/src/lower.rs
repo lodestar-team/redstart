@@ -162,15 +162,19 @@ pub fn lower_fn(func: &FnDecl, env: &mut Env) -> (String, Vec<String>) {
         sig_params.push(format!("{}: {}", p.name.name, rty_to_as(&rty)));
         scope.declare_local(&p.name.name, rty);
     }
-    let ret_as = func
-        .ret
-        .as_ref()
-        .map_or_else(|| "void".to_string(), |t| rty_to_as(&resolve_type(t, &env.entities)));
+    let ret_as = func.ret.as_ref().map_or_else(
+        || "void".to_string(),
+        |t| rty_to_as(&resolve_type(t, &env.entities)),
+    );
 
     let mut body = String::new();
     lower_block(&func.body, env, &mut scope, &mut body, 1);
 
-    let keyword = if func.is_pub { "export function" } else { "function" };
+    let keyword = if func.is_pub {
+        "export function"
+    } else {
+        "function"
+    };
     let text = format!(
         "{keyword} {}({}): {ret_as} {{\n{body}}}\n\n",
         func.name.name,
@@ -238,7 +242,9 @@ fn lower_stmt(stmt: &Stmt, env: &mut Env, scope: &mut Scope, out: &mut String, l
                 scope
                     .warnings
                     .push("`match` in `let` position is not supported yet".into());
-                out.push_str(&format!("{pad}// TODO: `let {name} = match …` unsupported\n"));
+                out.push_str(&format!(
+                    "{pad}// TODO: `let {name} = match …` unsupported\n"
+                ));
             } else {
                 let ty = infer(value, env, scope);
                 let rhs = lower_expr(value, env, scope);
@@ -270,16 +276,30 @@ fn lower_stmt(stmt: &Stmt, env: &mut Env, scope: &mut Scope, out: &mut String, l
             else_ifs,
             else_block,
             ..
-        } => lower_if(cond, then_block, else_ifs, else_block.as_ref(), env, scope, out, level),
+        } => lower_if(
+            cond,
+            then_block,
+            else_ifs,
+            else_block.as_ref(),
+            env,
+            scope,
+            out,
+            level,
+        ),
         Stmt::While { cond, body, .. } => {
             let c = lower_cond(cond, env, scope);
             out.push_str(&format!("{pad}while ({c}) {{\n"));
             lower_block(body, env, scope, out, level + 1);
             out.push_str(&format!("{pad}}}\n"));
         }
-        Stmt::For { var, iter, body, .. } => lower_for(var, iter, body, env, scope, out, level),
+        Stmt::For {
+            var, iter, body, ..
+        } => lower_for(var, iter, body, env, scope, out, level),
         Stmt::Expr(e) => {
-            if let Expr::Match { scrutinee, arms, .. } = e {
+            if let Expr::Match {
+                scrutinee, arms, ..
+            } = e
+            {
                 lower_match(scrutinee, arms, env, scope, out, level);
             } else {
                 let s = lower_expr(e, env, scope);
@@ -383,7 +403,9 @@ enum CtorKind {
     LoadOrCreate,
     Create,
     /// `load(id)` / `loadInBlock(id)` — both return `Option<Entity>`.
-    Load { in_block: bool },
+    Load {
+        in_block: bool,
+    },
 }
 
 fn entity_ctor(value: &Expr) -> Option<EntityCtor<'_>> {
@@ -453,7 +475,10 @@ fn lower_entity_ctor(
         CtorKind::Load { in_block } => {
             // `load`/`loadInBlock` return `Option<Entity>`: the local is nullable
             // and must be `match`ed before use, so null-deref is unrepresentable.
-            scope.declare_local(&name.name, RTy::Option(Box::new(RTy::Entity(entity.clone()))));
+            scope.declare_local(
+                &name.name,
+                RTy::Option(Box::new(RTy::Entity(entity.clone()))),
+            );
             let method = if in_block { "loadInBlock" } else { "load" };
             out.push_str(&format!("{pad}let {var} = {entity}.{method}({id})\n"));
         }
@@ -556,7 +581,16 @@ fn lower_match(
             let (ok_bind, ok_body) = find_arm(arms, "Ok");
             let (_err_bind, err_body) = find_arm(arms, "Err");
             out.push_str(&format!("{pad}if (!{var}.reverted) {{\n"));
-            lower_arm(ok_bind, &format!("{var}.value"), &inner, ok_body, env, scope, out, level);
+            lower_arm(
+                ok_bind,
+                &format!("{var}.value"),
+                &inner,
+                ok_body,
+                env,
+                scope,
+                out,
+                level,
+            );
             out.push_str(&format!("{pad}}}"));
             if let Some(body) = err_body.filter(|b| !b.stmts.is_empty()) {
                 out.push_str(" else {\n");
@@ -569,7 +603,16 @@ fn lower_match(
             let (some_bind, some_body) = find_arm(arms, "Some");
             let (_none_bind, none_body) = find_arm(arms, "None");
             out.push_str(&format!("{pad}if ({var} != null) {{\n"));
-            lower_arm(some_bind, &format!("{var}!"), &inner, some_body, env, scope, out, level);
+            lower_arm(
+                some_bind,
+                &format!("{var}!"),
+                &inner,
+                some_body,
+                env,
+                scope,
+                out,
+                level,
+            );
             out.push_str(&format!("{pad}}}"));
             if let Some(body) = none_body.filter(|b| !b.stmts.is_empty()) {
                 out.push_str(" else {\n");
@@ -894,14 +937,24 @@ fn infer_field(base: &Expr, field: &str, env: &mut Env, scope: &mut Scope) -> RT
             let (abi, func) = (scope.abi.clone(), scope.member.clone());
             env.abis
                 .function_inputs(&abi, &func)
-                .and_then(|params| params.iter().find(|p| p.name == field).map(|p| sol_to_rty(&p.sol_type)))
+                .and_then(|params| {
+                    params
+                        .iter()
+                        .find(|p| p.name == field)
+                        .map(|p| sol_to_rty(&p.sol_type))
+                })
                 .unwrap_or(RTy::Unknown)
         }
         RTy::CallOutputs => {
             let (abi, func) = (scope.abi.clone(), scope.member.clone());
             env.abis
                 .function_output_params(&abi, &func)
-                .and_then(|params| params.iter().find(|p| p.name == field).map(|p| sol_to_rty(&p.sol_type)))
+                .and_then(|params| {
+                    params
+                        .iter()
+                        .find(|p| p.name == field)
+                        .map(|p| sol_to_rty(&p.sol_type))
+                })
                 .unwrap_or(RTy::Unknown)
         }
         RTy::Block => match field {

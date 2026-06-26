@@ -105,7 +105,14 @@ fn main() -> ExitCode {
             ipfs,
             version_label,
             dry_run,
-        } => cmd_deploy(&path, &subgraph, node.as_deref(), ipfs.as_deref(), version_label.as_deref(), dry_run),
+        } => cmd_deploy(
+            &path,
+            &subgraph,
+            node.as_deref(),
+            ipfs.as_deref(),
+            version_label.as_deref(),
+            dry_run,
+        ),
         Command::Lsp => {
             redstart_lsp::run();
             Ok(())
@@ -124,8 +131,16 @@ fn cmd_check(path: &Path) -> Result<(), String> {
     let tree = load(path)?;
     check(&tree)?;
     let modules = tree.modules.len();
-    let entities: usize = tree.modules.values().map(|m| m.program.entities.len()).sum();
-    let handlers: usize = tree.modules.values().map(|m| m.program.handlers.len()).sum();
+    let entities: usize = tree
+        .modules
+        .values()
+        .map(|m| m.program.entities.len())
+        .sum();
+    let handlers: usize = tree
+        .modules
+        .values()
+        .map(|m| m.program.handlers.len())
+        .sum();
     println!(
         "✓ {} — {modules} module(s), {entities} entit(ies), {handlers} handler(s), no errors",
         tree.name
@@ -138,9 +153,12 @@ fn cmd_build(path: &Path) -> Result<(), String> {
     let mut checked = check(&tree)?;
     let generated = redstart_codegen::generate(&tree, &mut checked);
 
-    generated
-        .write_to(&tree.out_dir)
-        .map_err(|e| format!("failed to write build output to {}: {e}", tree.out_dir.display()))?;
+    generated.write_to(&tree.out_dir).map_err(|e| {
+        format!(
+            "failed to write build output to {}: {e}",
+            tree.out_dir.display()
+        )
+    })?;
 
     for warning in &generated.warnings {
         eprintln!("warning: {warning}");
@@ -166,9 +184,12 @@ fn cmd_deploy(
     let tree = load(path)?;
     let mut checked = check(&tree)?;
     let generated = redstart_codegen::generate(&tree, &mut checked);
-    generated
-        .write_to(&tree.out_dir)
-        .map_err(|e| format!("failed to write build output to {}: {e}", tree.out_dir.display()))?;
+    generated.write_to(&tree.out_dir).map_err(|e| {
+        format!(
+            "failed to write build output to {}: {e}",
+            tree.out_dir.display()
+        )
+    })?;
     for warning in &generated.warnings {
         eprintln!("warning: {warning}");
     }
@@ -193,9 +214,17 @@ fn cmd_deploy(
 
     // 4. graph codegen + graph build — the eject path.
     println!("\x1b[1;36m▸\x1b[0m graph codegen");
-    run_in(out, "npx", &["--no-install", "graph", "codegen", "subgraph.yaml"])?;
+    run_in(
+        out,
+        "npx",
+        &["--no-install", "graph", "codegen", "subgraph.yaml"],
+    )?;
     println!("\x1b[1;36m▸\x1b[0m graph build");
-    run_in(out, "npx", &["--no-install", "graph", "build", "subgraph.yaml"])?;
+    run_in(
+        out,
+        "npx",
+        &["--no-install", "graph", "build", "subgraph.yaml"],
+    )?;
 
     if dry_run {
         println!("\x1b[1;32m✓\x1b[0m dry run complete — subgraph compiled; skipped deploy");
@@ -203,7 +232,12 @@ fn cmd_deploy(
     }
 
     // 5. graph deploy.
-    let mut args: Vec<String> = vec!["--no-install".into(), "graph".into(), "deploy".into(), subgraph.into()];
+    let mut args: Vec<String> = vec![
+        "--no-install".into(),
+        "graph".into(),
+        "deploy".into(),
+        subgraph.into(),
+    ];
     if let Some(n) = node {
         args.push("--node".into());
         args.push(n.into());
@@ -268,7 +302,9 @@ fn cmd_test(path: &Path) -> Result<(), String> {
         match &r.outcome {
             redstart_test::Outcome::Pass => println!("  \x1b[32m✓\x1b[0m {}", r.name),
             redstart_test::Outcome::Fail { message, location } => {
-                let at = location.as_deref().map_or(String::new(), |l| format!(" ({l})"));
+                let at = location
+                    .as_deref()
+                    .map_or(String::new(), |l| format!(" ({l})"));
                 println!("  \x1b[31m✗\x1b[0m {}{at}\n      {message}", r.name);
             }
         }
@@ -295,7 +331,10 @@ fn cmd_dev(path: &Path, once: bool) -> Result<(), String> {
     } else {
         path.to_path_buf()
     };
-    println!("redstart dev — watching {} (Ctrl-C to stop)", root.display());
+    println!(
+        "redstart dev — watching {} (Ctrl-C to stop)",
+        root.display()
+    );
 
     let mut last = String::new();
     let mut n = 0u64;
@@ -344,13 +383,19 @@ fn dev_once(path: &Path) {
         match &r.outcome {
             redstart_test::Outcome::Pass => println!("  \x1b[32m✓\x1b[0m {}", r.name),
             redstart_test::Outcome::Fail { message, location } => {
-                let at = location.as_deref().map_or(String::new(), |l| format!(" ({l})"));
+                let at = location
+                    .as_deref()
+                    .map_or(String::new(), |l| format!(" ({l})"));
                 println!("  \x1b[31m✗\x1b[0m {}{at}\n      {message}", r.name);
             }
         }
     }
     let (passed, total) = (report.passed(), report.results.len());
-    let mark = if report.ok() { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
+    let mark = if report.ok() {
+        "\x1b[32m✓\x1b[0m"
+    } else {
+        "\x1b[31m✗\x1b[0m"
+    };
     println!("  {mark} {passed}/{total} tests");
 }
 
@@ -364,7 +409,9 @@ fn fingerprint(root: &Path) -> String {
 }
 
 fn collect_fingerprint(dir: &Path, out: &mut Vec<String>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in rd.flatten() {
         let p = entry.path();
         let name = entry.file_name();
@@ -465,13 +512,12 @@ fn cmd_new(name: &str) -> Result<(), String> {
 
     let src = root.join("src");
     let abis = src.join("abis");
-    std::fs::create_dir_all(&abis).map_err(|e| format!("could not create {}: {e}", abis.display()))?;
+    std::fs::create_dir_all(&abis)
+        .map_err(|e| format!("could not create {}: {e}", abis.display()))?;
 
     write_file(
         &root.join("redstart.toml"),
-        &format!(
-            "[project]\nname = \"{name}\"\nentry = \"src/main.red\"\nout_dir = \"build\"\n"
-        ),
+        &format!("[project]\nname = \"{name}\"\nentry = \"src/main.red\"\nout_dir = \"build\"\n"),
     )?;
     write_file(&root.join(".gitignore"), "/build\n")?;
     write_file(&src.join("main.red"), STARTER_MAIN)?;

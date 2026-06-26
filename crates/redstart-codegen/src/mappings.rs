@@ -14,9 +14,9 @@ use std::collections::BTreeMap;
 fn call_class(handler: &HandlerDecl) -> String {
     let f = &handler.event.name;
     let mut chars = f.chars();
-    let cap = chars
-        .next()
-        .map_or_else(String::new, |c| c.to_uppercase().collect::<String>() + chars.as_str());
+    let cap = chars.next().map_or_else(String::new, |c| {
+        c.to_uppercase().collect::<String>() + chars.as_str()
+    });
     format!("{cap}Call")
 }
 
@@ -170,10 +170,25 @@ fn render_imports(
 /// — types and namespaces. Anything referenced as a whole word gets imported.
 const GRAPH_TS_EXPORTS: &[&str] = &[
     // types
-    "Address", "BigDecimal", "BigInt", "ByteArray", "Bytes", "DataSourceContext",
-    "Entity", "TypedMap", "Value", "Wrapped",
+    "Address",
+    "BigDecimal",
+    "BigInt",
+    "ByteArray",
+    "Bytes",
+    "DataSourceContext",
+    "Entity",
+    "TypedMap",
+    "Value",
+    "Wrapped",
     // namespaces
-    "crypto", "dataSource", "ens", "ethereum", "ipfs", "json", "log", "store",
+    "crypto",
+    "dataSource",
+    "ens",
+    "ethereum",
+    "ipfs",
+    "json",
+    "log",
+    "store",
     "typeConversion",
 ];
 

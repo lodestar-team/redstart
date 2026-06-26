@@ -114,7 +114,10 @@ mod tests {
     #[test]
     fn preserves_comments() {
         let src = "entity A {\n// a comment\nid: Id<Bytes>\n}\n";
-        assert_eq!(format(src), "entity A {\n  // a comment\n  id: Id<Bytes>\n}\n");
+        assert_eq!(
+            format(src),
+            "entity A {\n  // a comment\n  id: Id<Bytes>\n}\n"
+        );
     }
 
     #[test]

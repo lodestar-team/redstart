@@ -17,8 +17,8 @@ mod schema;
 use lower::Env;
 use manifest::ManifestInput;
 use redstart_checker::Checked;
-use redstart_loader::ModuleTree;
 use redstart_checker::{resolve_type, RTy};
+use redstart_loader::ModuleTree;
 use redstart_parser::ast::{
     AggregationDecl, EntityDecl, EnumDecl, FnDecl, HandlerDecl, InterfaceDecl, SourceDecl,
     TemplateDecl,
@@ -198,7 +198,9 @@ handler on Token.Transfer(event) {
     #[test]
     fn schema_and_manifest_reflect_source() {
         let gen = build_demo();
-        assert!(gen.schema.contains("type Account @entity(immutable: false) {"));
+        assert!(gen
+            .schema
+            .contains("type Account @entity(immutable: false) {"));
         assert!(gen.schema.contains("balance: BigInt!"));
         assert!(gen
             .manifest
@@ -217,7 +219,9 @@ handler on Token.Transfer(event) {
         assert!(m.contains("acct.balance = BigInt.zero()"));
         assert!(m.contains("acct.balance = acct.balance.plus(event.params.value)"));
         assert!(m.contains("acct.save()"));
-        assert!(m.contains("import { Transfer as TransferEvent } from \"../generated/Token/ERC20\""));
+        assert!(
+            m.contains("import { Transfer as TransferEvent } from \"../generated/Token/ERC20\"")
+        );
         assert!(m.contains("import { Account } from \"../generated/schema\""));
         assert!(m.contains("import { BigInt } from \"@graphprotocol/graph-ts\""));
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
@@ -259,7 +263,9 @@ handler on Token.Approval(event) {
             CALLS_ABI,
         );
         let m = &gen.mappings;
-        assert!(m.contains("let result = ERC20.bind(event.address).try_balanceOf(event.params.owner)"));
+        assert!(
+            m.contains("let result = ERC20.bind(event.address).try_balanceOf(event.params.owner)")
+        );
         assert!(m.contains("if (!result.reverted) {"));
         assert!(m.contains("let bal = result.value"));
         assert!(m.contains("owner.save()"));
@@ -296,7 +302,10 @@ handler on Token.Transfer(event) {
         );
         let m = &gen.mappings;
         // BigInt comparison in the condition lowers to a method call, not `>`.
-        assert!(m.contains("if (event.params.value.gt(BigInt.zero())) {"), "got:\n{m}");
+        assert!(
+            m.contains("if (event.params.value.gt(BigInt.zero())) {"),
+            "got:\n{m}"
+        );
         assert!(m.contains("} else {"), "got:\n{m}");
         // Numeric range becomes a counted native `for`.
         assert!(m.contains("for (let i = 0; i < 3; i++) {"), "got:\n{m}");
@@ -334,7 +343,11 @@ handler block Token(block) every 100 {
             FN_ABI,
         );
         // Manifest: callHandlers + blockHandlers with filter.
-        assert!(gen.manifest.contains("callHandlers:"), "manifest:\n{}", gen.manifest);
+        assert!(
+            gen.manifest.contains("callHandlers:"),
+            "manifest:\n{}",
+            gen.manifest
+        );
         assert!(gen.manifest.contains("function: transfer(address,uint256)"));
         assert!(gen.manifest.contains("handler: handleTransferCall"));
         assert!(gen.manifest.contains("blockHandlers:"));
@@ -343,7 +356,10 @@ handler block Token(block) every 100 {
         assert!(gen.manifest.contains("every: 100"));
         // Mappings: correct param types and member access.
         let m = &gen.mappings;
-        assert!(m.contains("export function handleTransferCall(call: TransferCall): void"), "got:\n{m}");
+        assert!(
+            m.contains("export function handleTransferCall(call: TransferCall): void"),
+            "got:\n{m}"
+        );
         assert!(m.contains("acct.balance.plus(call.inputs.amount)"));
         assert!(m.contains("export function handleTokenBlock(block: ethereum.Block): void"));
         assert!(m.contains("snap.total = block.number"));
@@ -374,11 +390,21 @@ handler on Token.Transfer(event) {
 "#,
             TRANSFER_ABI,
         );
-        assert!(gen.manifest.contains("templates:"), "manifest:\n{}", gen.manifest);
+        assert!(
+            gen.manifest.contains("templates:"),
+            "manifest:\n{}",
+            gen.manifest
+        );
         assert!(gen.manifest.contains("name: PairTemplate"));
         let m = &gen.mappings;
-        assert!(m.contains("PairTemplate.create(event.params.to)"), "got:\n{m}");
-        assert!(m.contains("import { PairTemplate } from \"../generated/templates\""), "got:\n{m}");
+        assert!(
+            m.contains("PairTemplate.create(event.params.to)"),
+            "got:\n{m}"
+        );
+        assert!(
+            m.contains("import { PairTemplate } from \"../generated/templates\""),
+            "got:\n{m}"
+        );
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
 
@@ -414,7 +440,10 @@ handler on TokenTemplate.Transfer(event) {
             "template handler must import from generated/templates/…, got:\n{m}"
         );
         // A regular data source keeps the plain path.
-        assert!(!m.contains("from \"../generated/TokenTemplate/ERC20\""), "got:\n{m}");
+        assert!(
+            !m.contains("from \"../generated/TokenTemplate/ERC20\""),
+            "got:\n{m}"
+        );
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
 
@@ -441,9 +470,15 @@ handler on Token.Transfer(event) {
         );
         let m = &gen.mappings;
         // Whole-word import detection: log/crypto imported, logIndex is not a false positive.
-        assert!(m.contains("import { BigInt, crypto, log } from \"@graphprotocol/graph-ts\""), "got:\n{m}");
+        assert!(
+            m.contains("import { BigInt, crypto, log } from \"@graphprotocol/graph-ts\""),
+            "got:\n{m}"
+        );
         // A BigInt static chained through `.pow()` is still BigInt, so `+` lowers to `.plus()`.
-        assert!(m.contains("BigInt.fromI32(10).pow(2).plus(acct.score)"), "got:\n{m}");
+        assert!(
+            m.contains("BigInt.fromI32(10).pow(2).plus(acct.score)"),
+            "got:\n{m}"
+        );
         assert!(m.contains("crypto.keccak256(event.params.from)"));
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
@@ -475,11 +510,18 @@ handler file Meta(content) {
             TRANSFER_ABI,
         );
         // file/ipfs template with a single `handler:` and no network/address.
-        assert!(gen.manifest.contains("kind: file/ipfs"), "manifest:\n{}", gen.manifest);
+        assert!(
+            gen.manifest.contains("kind: file/ipfs"),
+            "manifest:\n{}",
+            gen.manifest
+        );
         assert!(gen.manifest.contains("name: Meta"));
         assert!(gen.manifest.contains("handler: handleMeta"));
         let m = &gen.mappings;
-        assert!(m.contains("export function handleMeta(content: Bytes): void"), "got:\n{m}");
+        assert!(
+            m.contains("export function handleMeta(content: Bytes): void"),
+            "got:\n{m}"
+        );
         assert!(m.contains("json.fromBytes(content)"));
         assert!(m.contains("dataSource.stringParam()"));
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
@@ -512,11 +554,20 @@ handler on Token.Transfer(event) {
         let m = &gen.mappings;
         // load() is nullable -> match lowers to a null-check; the bound entity
         // is auto-saved inside the arm.
-        assert!(m.contains("let acct = Account.load(event.params.to)"), "got:\n{m}");
+        assert!(
+            m.contains("let acct = Account.load(event.params.to)"),
+            "got:\n{m}"
+        );
         assert!(m.contains("if (acct != null) {"), "got:\n{m}");
         assert!(m.contains("let a = acct!"), "got:\n{m}");
-        assert!(m.contains("a.balance = a.balance.plus(event.params.value)"), "got:\n{m}");
-        assert!(m.contains("a.save()"), "matched entity must auto-save, got:\n{m}");
+        assert!(
+            m.contains("a.balance = a.balance.plus(event.params.value)"),
+            "got:\n{m}"
+        );
+        assert!(
+            m.contains("a.save()"),
+            "matched entity must auto-save, got:\n{m}"
+        );
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
 
@@ -545,14 +596,23 @@ handler on Token.Transfer(event) {
         );
         let m = &gen.mappings;
         // The helper is emitted as a function; its save precedes the `return`.
-        assert!(m.contains("function getOrCreateAccount(addr: Bytes): Account {"), "got:\n{m}");
+        assert!(
+            m.contains("function getOrCreateAccount(addr: Bytes): Account {"),
+            "got:\n{m}"
+        );
         let helper = &m[m.find("function getOrCreateAccount").unwrap()..];
         let save_pos = helper.find("acct.save()").expect("helper saves");
         let ret_pos = helper.find("return acct").expect("helper returns");
-        assert!(save_pos < ret_pos, "save must precede return, got:\n{helper}");
+        assert!(
+            save_pos < ret_pos,
+            "save must precede return, got:\n{helper}"
+        );
         // The helper's return type flows into the caller: `+` lowers to `.plus()`
         // and the result auto-saves.
-        assert!(m.contains("acct.balance = acct.balance.plus(event.params.value)"), "got:\n{m}");
+        assert!(
+            m.contains("acct.balance = acct.balance.plus(event.params.value)"),
+            "got:\n{m}"
+        );
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
     }
 }

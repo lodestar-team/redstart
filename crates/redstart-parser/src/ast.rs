@@ -232,7 +232,9 @@ impl HandlerDecl {
             HandlerKind::Call => format!("handle{}Call", capitalize(&self.event.name)),
             // The param binding (conventionally `block`) keeps sibling block
             // handlers on one source uniquely named — `handleTokenBlock`.
-            HandlerKind::Block(_) => format!("handle{}{}", self.source.name, capitalize(&self.param.name)),
+            HandlerKind::Block(_) => {
+                format!("handle{}{}", self.source.name, capitalize(&self.param.name))
+            }
             HandlerKind::File => format!("handle{}", capitalize(&self.source.name)),
         }
     }
@@ -368,11 +370,7 @@ pub enum Stmt {
         span: Span,
     },
     /// `while cond { … }`.
-    While {
-        cond: Expr,
-        body: Block,
-        span: Span,
-    },
+    While { cond: Expr, body: Block, span: Span },
     /// `for x in <iter> { … }`.
     For {
         /// The loop binding.

@@ -77,12 +77,15 @@ fn render_data_source(
     warnings: &mut Vec<String>,
 ) {
     let abi = setting_str(&source.settings, "abi").unwrap_or_else(|| "Contract".to_string());
-    let network =
-        setting_str(&source.settings, "network").unwrap_or_else(|| "mainnet".to_string());
+    let network = setting_str(&source.settings, "network").unwrap_or_else(|| "mainnet".to_string());
     let address = setting_str(&source.settings, "address").unwrap_or_default();
-    let start_block = setting_str(&source.settings, "startBlock").unwrap_or_else(|| "0".to_string());
+    let start_block =
+        setting_str(&source.settings, "startBlock").unwrap_or_else(|| "0".to_string());
 
-    out.push_str(&format!("  - kind: ethereum\n    name: {}\n", source.name.name));
+    out.push_str(&format!(
+        "  - kind: ethereum\n    name: {}\n",
+        source.name.name
+    ));
     out.push_str(&format!("    network: {network}\n"));
     out.push_str("    source:\n");
     out.push_str(&format!("      address: \"{address}\"\n"));
@@ -199,7 +202,11 @@ fn render_mapping(
         .collect();
 
     // eventHandlers
-    let events: Vec<&&HandlerDecl> = mine.iter().filter(|h| h.kind == HandlerKind::Event).copied().collect();
+    let events: Vec<&&HandlerDecl> = mine
+        .iter()
+        .filter(|h| h.kind == HandlerKind::Event)
+        .copied()
+        .collect();
     if !events.is_empty() {
         out.push_str("      eventHandlers:\n");
         for handler in events {
@@ -221,7 +228,11 @@ fn render_mapping(
     }
 
     // callHandlers
-    let calls: Vec<&&HandlerDecl> = mine.iter().filter(|h| h.kind == HandlerKind::Call).copied().collect();
+    let calls: Vec<&&HandlerDecl> = mine
+        .iter()
+        .filter(|h| h.kind == HandlerKind::Call)
+        .copied()
+        .collect();
     if !calls.is_empty() {
         out.push_str("      callHandlers:\n");
         for handler in calls {

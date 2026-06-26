@@ -94,7 +94,10 @@ fn render_entity(out: &mut String, entity: &EntityDecl) {
         let names: Vec<&str> = entity.implements.iter().map(|i| i.name.as_str()).collect();
         format!(" implements {}", names.join(" & "))
     };
-    out.push_str(&format!("type {}{implements} {directives} {{\n", entity.name.name));
+    out.push_str(&format!(
+        "type {}{implements} {directives} {{\n",
+        entity.name.name
+    ));
     // A timeseries entity has an auto-incrementing `id: Int8!` and an
     // auto-populated `timestamp: Timestamp!`; inject any the author omitted.
     if entity.modifiers.iter().any(|m| m.name == "timeseries") {
@@ -162,10 +165,9 @@ fn graphql_type(ty: &TypeExpr) -> (String, bool) {
                     )
                 }
                 // Id<T> resolves to its inner scalar (e.g. Id<Bytes> -> Bytes!).
-                "Id" => args.first().map_or_else(
-                    || ("ID".to_string(), true),
-                    |t| (scalar_or_ref(t), true),
-                ),
+                "Id" => args
+                    .first()
+                    .map_or_else(|| ("ID".to_string(), true), |t| (scalar_or_ref(t), true)),
                 // List<T> as an alternative to [T].
                 "List" => {
                     let inner = args
@@ -236,9 +238,7 @@ mod tests {
 
     #[test]
     fn derived_and_list() {
-        let s = schema_of(
-            "entity Pool { id: Id<Bytes> swaps: [Swap] derived from pool }",
-        );
+        let s = schema_of("entity Pool { id: Id<Bytes> swaps: [Swap] derived from pool }");
         assert!(s.contains("swaps: [Swap!]! @derivedFrom(field: \"pool\")"));
     }
 
@@ -255,12 +255,29 @@ mod tests {
              aggregation Stats over Data every [hour, day] { total: BigDecimal = sum(price) count: Int8 = count() }",
         );
         // Timeseries entity is implicitly immutable with auto id/timestamp.
-        assert!(s.contains("type Data @entity(immutable: true, timeseries: true) {"), "got:\n{s}");
-        assert!(s.contains("  id: Int8!\n  timestamp: Timestamp!\n  price: BigDecimal!"), "got:\n{s}");
+        assert!(
+            s.contains("type Data @entity(immutable: true, timeseries: true) {"),
+            "got:\n{s}"
+        );
+        assert!(
+            s.contains("  id: Int8!\n  timestamp: Timestamp!\n  price: BigDecimal!"),
+            "got:\n{s}"
+        );
         // Aggregation type with @aggregation + @aggregate directives.
-        assert!(s.contains("type Stats @aggregation(intervals: [\"hour\", \"day\"], source: \"Data\") {"), "got:\n{s}");
-        assert!(s.contains("total: BigDecimal! @aggregate(fn: \"sum\", arg: \"price\")"), "got:\n{s}");
-        assert!(s.contains("count: Int8! @aggregate(fn: \"count\")"), "got:\n{s}");
+        assert!(
+            s.contains(
+                "type Stats @aggregation(intervals: [\"hour\", \"day\"], source: \"Data\") {"
+            ),
+            "got:\n{s}"
+        );
+        assert!(
+            s.contains("total: BigDecimal! @aggregate(fn: \"sum\", arg: \"price\")"),
+            "got:\n{s}"
+        );
+        assert!(
+            s.contains("count: Int8! @aggregate(fn: \"count\")"),
+            "got:\n{s}"
+        );
     }
 
     #[test]
@@ -269,8 +286,14 @@ mod tests {
             "interface Token { id: Id<Bytes> symbol: String } \
              entity FT implements Token { id: Id<Bytes> symbol: String supply: BigInt }",
         );
-        assert!(s.contains("interface Token {\n  id: Bytes!\n  symbol: String!\n}"), "got:\n{s}");
-        assert!(s.contains("type FT implements Token @entity(immutable: false) {"), "got:\n{s}");
+        assert!(
+            s.contains("interface Token {\n  id: Bytes!\n  symbol: String!\n}"),
+            "got:\n{s}"
+        );
+        assert!(
+            s.contains("type FT implements Token @entity(immutable: false) {"),
+            "got:\n{s}"
+        );
     }
 
     #[test]

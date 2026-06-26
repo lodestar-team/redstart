@@ -128,7 +128,10 @@ impl<'t> Parser<'t> {
     fn expect_ident(&mut self, context: &str) -> PResult<Ident> {
         if self.check(Token::Ident) {
             let sp = self.bump().unwrap().clone();
-            Ok(Ident::new(self.text(&sp).to_string(), self.span(sp.start, sp.end)))
+            Ok(Ident::new(
+                self.text(&sp).to_string(),
+                self.span(sp.start, sp.end),
+            ))
         } else {
             let found = self
                 .peek_kind()
@@ -219,10 +222,7 @@ impl<'t> Parser<'t> {
             Some(Token::KwTest) => program.tests.push(self.parse_test()?),
             _ => {
                 return Err(self
-                    .err(
-                        "expected a top-level declaration",
-                        "unexpected token",
-                    )
+                    .err("expected a top-level declaration", "unexpected token")
                     .with_help(
                         "top-level items are `abi`, `entity`, `source`, `template`, \
                          `handler`, `fn`, `test`, `mod`, or `use`",
@@ -320,7 +320,10 @@ impl<'t> Parser<'t> {
         let mut modifiers = Vec::new();
         while self.check(Token::Ident) {
             let sp = self.bump().unwrap().clone();
-            modifiers.push(Ident::new(self.text(&sp).to_string(), self.span(sp.start, sp.end)));
+            modifiers.push(Ident::new(
+                self.text(&sp).to_string(),
+                self.span(sp.start, sp.end),
+            ));
         }
 
         self.expect(Token::LBrace, "to open the entity body")?;
@@ -363,7 +366,11 @@ impl<'t> Parser<'t> {
         self.expect(Token::KwAggregation, "to begin an aggregation")?;
         let name = self.expect_ident("for the aggregation name")?;
         self.expect_contextual("over", "after the aggregation name")
-            .map_err(|e| e.with_help("aggregations look like `aggregation Stats over Data every [hour, day] { … }`"))?;
+            .map_err(|e| {
+                e.with_help(
+                    "aggregations look like `aggregation Stats over Data every [hour, day] { … }`",
+                )
+            })?;
         let source = self.expect_ident("for the source timeseries entity")?;
         self.expect_contextual("every", "before the interval list")?;
         self.expect(Token::LBracket, "to open the interval list")?;
@@ -396,7 +403,9 @@ impl<'t> Parser<'t> {
         self.expect(Token::Colon, "after the field name")?;
         let ty = self.parse_type()?;
         self.expect(Token::Eq, "before the aggregation function")
-            .map_err(|e| e.with_help("aggregated fields look like `total: BigDecimal = sum(price)`"))?;
+            .map_err(|e| {
+                e.with_help("aggregated fields look like `total: BigDecimal = sum(price)`")
+            })?;
         let func = self.expect_ident("for the aggregation function")?;
         self.expect(Token::LParen, "before the aggregation argument")?;
         let arg = if self.check(Token::RParen) {
@@ -456,8 +465,9 @@ impl<'t> Parser<'t> {
 
         let derived_from = if self.check(Token::KwDerived) {
             self.bump();
-            self.expect(Token::KwFrom, "after `derived`")
-                .map_err(|e| e.with_help("derived fields look like `swaps: [Swap] derived from pool`"))?;
+            self.expect(Token::KwFrom, "after `derived`").map_err(|e| {
+                e.with_help("derived fields look like `swaps: [Swap] derived from pool`")
+            })?;
             Some(self.expect_ident_like("for the back-reference field")?)
         } else {
             None
@@ -609,7 +619,10 @@ impl<'t> Parser<'t> {
             let n = self.expect(Token::IntLit, "for the polling interval")?;
             let raw = self.text(&n).replace('_', "");
             let every = raw.parse::<u64>().map_err(|_| {
-                self.err("polling interval must be a positive integer", "invalid interval")
+                self.err(
+                    "polling interval must be a positive integer",
+                    "invalid interval",
+                )
             })?;
             Ok(BlockFilter::Polling(every))
         } else if self.peek_text_is("once") {
@@ -841,7 +854,9 @@ impl<'t> Parser<'t> {
         self.expect(Token::KwFor, "to begin a `for`")?;
         let var = self.expect_ident("for the loop variable")?;
         self.expect(Token::KwIn, "after the loop variable")
-            .map_err(|e| e.with_help("loops look like `for i in 0..n { … }` or `for x in items { … }`"))?;
+            .map_err(|e| {
+                e.with_help("loops look like `for i in 0..n { … }` or `for x in items { … }`")
+            })?;
         let first = self.parse_expr()?;
         let iter = if self.check(Token::DotDot) {
             self.bump();
@@ -1123,11 +1138,7 @@ impl<'t> Parser<'t> {
         }
 
         // Uppercase-initial bare name => nullary constructor (e.g. `None`).
-        let is_ctor = name
-            .name
-            .chars()
-            .next()
-            .is_some_and(char::is_uppercase);
+        let is_ctor = name.name.chars().next().is_some_and(char::is_uppercase);
         if is_ctor {
             Ok(Pattern::Ctor {
                 name,
@@ -1333,7 +1344,11 @@ handler on C.E(event) {
 "#,
         );
         let h = &p.handlers[0];
-        if let Stmt::Let { value: Expr::Match { arms, .. }, .. } = &h.body.stmts[0] {
+        if let Stmt::Let {
+            value: Expr::Match { arms, .. },
+            ..
+        } = &h.body.stmts[0]
+        {
             assert_eq!(arms.len(), 2);
         } else {
             panic!("expected a match expression");
@@ -1369,7 +1384,11 @@ handler on C.Transfer(event) {
         // a + b * c  =>  a + (b * c)
         let p = parse_ok("fn f() { let x = a + b * c }");
         let body = &p.functions[0].body;
-        let Stmt::Let { value: Expr::Binary { op, rhs, .. }, .. } = &body.stmts[0] else {
+        let Stmt::Let {
+            value: Expr::Binary { op, rhs, .. },
+            ..
+        } = &body.stmts[0]
+        else {
             panic!("expected binary");
         };
         assert_eq!(*op, BinOp::Add);
@@ -1433,7 +1452,10 @@ handler block Token(b3) { }
         assert_eq!(p.handlers[0].kind, HandlerKind::Event);
         assert_eq!(p.handlers[1].kind, HandlerKind::Call);
         assert_eq!(p.handlers[1].event.name, "transfer");
-        assert_eq!(p.handlers[2].kind, HandlerKind::Block(BlockFilter::Polling(50)));
+        assert_eq!(
+            p.handlers[2].kind,
+            HandlerKind::Block(BlockFilter::Polling(50))
+        );
         assert_eq!(p.handlers[3].kind, HandlerKind::Block(BlockFilter::Once));
         assert_eq!(p.handlers[4].kind, HandlerKind::Block(BlockFilter::Every));
     }
@@ -1474,13 +1496,30 @@ handler on C.E(event) {
         );
         let body = &p.handlers[0].body;
         assert!(matches!(body.stmts[1], Stmt::If { .. }));
-        let Stmt::If { else_ifs, else_block, .. } = &body.stmts[1] else {
+        let Stmt::If {
+            else_ifs,
+            else_block,
+            ..
+        } = &body.stmts[1]
+        else {
             panic!("expected if");
         };
         assert_eq!(else_ifs.len(), 1);
         assert!(else_block.is_some());
-        assert!(matches!(body.stmts[2], Stmt::For { iter: ForIter::Range { .. }, .. }));
-        assert!(matches!(body.stmts[3], Stmt::For { iter: ForIter::Each(_), .. }));
+        assert!(matches!(
+            body.stmts[2],
+            Stmt::For {
+                iter: ForIter::Range { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            body.stmts[3],
+            Stmt::For {
+                iter: ForIter::Each(_),
+                ..
+            }
+        ));
         assert!(matches!(body.stmts[4], Stmt::While { .. }));
     }
 

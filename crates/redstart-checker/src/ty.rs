@@ -115,11 +115,15 @@ pub fn resolve_type(ty: &TypeExpr, entities: &HashMap<String, EntityInfo>) -> RT
             let name = base.simple_name().unwrap_or("");
             match name {
                 "Option" => RTy::Option(Box::new(
-                    args.first().map_or(RTy::Unknown, |t| resolve_type(t, entities)),
+                    args.first()
+                        .map_or(RTy::Unknown, |t| resolve_type(t, entities)),
                 )),
-                "Id" => args.first().map_or(RTy::Bytes, |t| resolve_type(t, entities)),
+                "Id" => args
+                    .first()
+                    .map_or(RTy::Bytes, |t| resolve_type(t, entities)),
                 "List" => RTy::List(Box::new(
-                    args.first().map_or(RTy::Unknown, |t| resolve_type(t, entities)),
+                    args.first()
+                        .map_or(RTy::Unknown, |t| resolve_type(t, entities)),
                 )),
                 _ => RTy::Unknown,
             }

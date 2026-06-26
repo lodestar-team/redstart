@@ -93,7 +93,10 @@ pub fn load_with_overlay(
 }
 
 /// Load a single `.red` file with no surrounding project.
-fn load_single_file(path: &Path, overlay: HashMap<PathBuf, String>) -> Result<ModuleTree, Vec<LoadError>> {
+fn load_single_file(
+    path: &Path,
+    overlay: HashMap<PathBuf, String>,
+) -> Result<ModuleTree, Vec<LoadError>> {
     let mut loader = ModuleLoader::new(overlay);
     loader.load_module(&[], path)?;
     let name = path
@@ -115,7 +118,10 @@ fn load_single_file(path: &Path, overlay: HashMap<PathBuf, String>) -> Result<Mo
 }
 
 /// Load a project from a directory containing `redstart.toml`.
-fn load_project(dir: &Path, overlay: HashMap<PathBuf, String>) -> Result<ModuleTree, Vec<LoadError>> {
+fn load_project(
+    dir: &Path,
+    overlay: HashMap<PathBuf, String>,
+) -> Result<ModuleTree, Vec<LoadError>> {
     let manifest_path = dir.join("redstart.toml");
     if !manifest_path.exists() {
         return Err(vec![LoadError::NoManifest {
@@ -162,7 +168,11 @@ impl ModuleLoader {
 
         if self.loading.contains(&canonical) {
             return Err(vec![LoadError::CircularDependency {
-                cycle: self.loading.iter().map(|p| p.display().to_string()).collect(),
+                cycle: self
+                    .loading
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
             }]);
         }
         if self.modules.contains_key(path) {
@@ -171,7 +181,11 @@ impl ModuleLoader {
         self.loading.insert(canonical.clone());
 
         // Prefer in-memory overlay contents (unsaved editor buffers) over disk.
-        let source = match self.overlay.get(&canonical).or_else(|| self.overlay.get(file)) {
+        let source = match self
+            .overlay
+            .get(&canonical)
+            .or_else(|| self.overlay.get(file))
+        {
             Some(s) => s.clone(),
             None => std::fs::read_to_string(file).map_err(|source| {
                 vec![LoadError::Io {

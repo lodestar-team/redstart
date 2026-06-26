@@ -96,7 +96,12 @@ impl AbiIndex {
         Some(format!("{name}({})", types.join(",")))
     }
 
-    fn read_function_params(&self, abi_name: &str, name: &str, which: &str) -> Option<Vec<EventParam>> {
+    fn read_function_params(
+        &self,
+        abi_name: &str,
+        name: &str,
+        which: &str,
+    ) -> Option<Vec<EventParam>> {
         let path = self.paths.get(abi_name)?;
         let text = std::fs::read_to_string(path).ok()?;
         let json: serde_json::Value = serde_json::from_str(&text).ok()?;
@@ -118,7 +123,13 @@ impl AbiIndex {
                             .and_then(|n| n.as_str())
                             .filter(|s| !s.is_empty())
                             .map_or_else(
-                                || if which == "outputs" { format!("value{i}") } else { format!("param{i}") },
+                                || {
+                                    if which == "outputs" {
+                                        format!("value{i}")
+                                    } else {
+                                        format!("param{i}")
+                                    }
+                                },
                                 str::to_string,
                             ),
                         sol_type: inp

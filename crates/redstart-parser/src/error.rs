@@ -25,11 +25,7 @@ pub struct ParseError {
 
 impl ParseError {
     /// Construct a parse error.
-    pub fn new(
-        message: impl Into<String>,
-        label: impl Into<String>,
-        span: Span,
-    ) -> Self {
+    pub fn new(message: impl Into<String>, label: impl Into<String>, span: Span) -> Self {
         Self {
             message: message.into(),
             label: label.into(),
@@ -66,9 +62,10 @@ impl Diagnostic for ParseErrors {
     }
 
     fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        let labels = self.errors.iter().map(|e| {
-            LabeledSpan::new_with_span(Some(e.label.clone()), e.span.label())
-        });
+        let labels = self
+            .errors
+            .iter()
+            .map(|e| LabeledSpan::new_with_span(Some(e.label.clone()), e.span.label()));
         Some(Box::new(labels))
     }
 

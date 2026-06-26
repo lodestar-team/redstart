@@ -84,9 +84,17 @@ handler block Token(block) {
 fn outcomes(tests_src: &str) -> Vec<(String, bool, String)> {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir_all(dir.path().join("src/abis")).unwrap();
-    fs::write(dir.path().join("redstart.toml"), "[project]\nname=\"t\"\nentry=\"src/main.red\"").unwrap();
+    fs::write(
+        dir.path().join("redstart.toml"),
+        "[project]\nname=\"t\"\nentry=\"src/main.red\"",
+    )
+    .unwrap();
     fs::write(dir.path().join("src/abis/ERC20.json"), ABI).unwrap();
-    fs::write(dir.path().join("src/main.red"), format!("{PROGRAM}\n{tests_src}")).unwrap();
+    fs::write(
+        dir.path().join("src/main.red"),
+        format!("{PROGRAM}\n{tests_src}"),
+    )
+    .unwrap();
 
     let tree = redstart_loader::load(dir.path()).unwrap();
     let checked = redstart_checker::check(&tree).expect("program should pass the checker");
@@ -166,7 +174,11 @@ test "forgot to mock" {
 "#,
     );
     assert!(!out[0].1);
-    assert!(out[0].2.contains("unmocked contract call"), "msg: {}", out[0].2);
+    assert!(
+        out[0].2.contains("unmocked contract call"),
+        "msg: {}",
+        out[0].2
+    );
 }
 
 #[test]

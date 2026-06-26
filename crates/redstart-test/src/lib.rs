@@ -63,13 +63,18 @@ impl TestReport {
     /// Whether every test passed.
     #[must_use]
     pub fn ok(&self) -> bool {
-        self.results.iter().all(|r| matches!(r.outcome, Outcome::Pass))
+        self.results
+            .iter()
+            .all(|r| matches!(r.outcome, Outcome::Pass))
     }
 
     /// Number of passing tests.
     #[must_use]
     pub fn passed(&self) -> usize {
-        self.results.iter().filter(|r| matches!(r.outcome, Outcome::Pass)).count()
+        self.results
+            .iter()
+            .filter(|r| matches!(r.outcome, Outcome::Pass))
+            .count()
     }
 }
 
@@ -182,7 +187,10 @@ impl<'t> Interp<'t> {
             for h in &m.program.handlers {
                 match h.kind {
                     HandlerKind::Block(_) => {
-                        block_handlers.entry(h.source.name.clone()).or_default().push(h);
+                        block_handlers
+                            .entry(h.source.name.clone())
+                            .or_default()
+                            .push(h);
                     }
                     HandlerKind::File => {
                         file_handlers.insert(h.source.name.clone(), h);
@@ -291,11 +299,19 @@ impl<'t> Interp<'t> {
                     }
                     guard += 1;
                     if guard > 10_000_000 {
-                        return err("`while` loop exceeded 10M iterations (likely non-terminating)", Some(span.clone()));
+                        return err(
+                            "`while` loop exceeded 10M iterations (likely non-terminating)",
+                            Some(span.clone()),
+                        );
                     }
                 }
             }
-            Stmt::For { var, iter, body, span } => {
+            Stmt::For {
+                var,
+                iter,
+                body,
+                span,
+            } => {
                 self.exec_for(var, iter, body, world, frame, span)?;
             }
             Stmt::Expr(e) => {
@@ -319,11 +335,17 @@ impl<'t> Interp<'t> {
                 let lo = self
                     .eval(start, world, frame)?
                     .to_bigint()
-                    .ok_or_else(|| TError { message: "range start must be numeric".into(), span: Some(start.span().clone()) })?;
+                    .ok_or_else(|| TError {
+                        message: "range start must be numeric".into(),
+                        span: Some(start.span().clone()),
+                    })?;
                 let hi = self
                     .eval(end, world, frame)?
                     .to_bigint()
-                    .ok_or_else(|| TError { message: "range end must be numeric".into(), span: Some(end.span().clone()) })?;
+                    .ok_or_else(|| TError {
+                        message: "range end must be numeric".into(),
+                        span: Some(end.span().clone()),
+                    })?;
                 let mut i = lo;
                 while i < hi {
                     frame.locals.insert(var.name.clone(), Value::Big(i.clone()));
@@ -337,7 +359,12 @@ impl<'t> Interp<'t> {
             ForIter::Each(list) => {
                 let items = match self.eval(list, world, frame)? {
                     Value::Array(items) => items,
-                    other => return err(format!("`for … in` needs an array, got `{}`", other.canonical()), Some(span.clone())),
+                    other => {
+                        return err(
+                            format!("`for … in` needs an array, got `{}`", other.canonical()),
+                            Some(span.clone()),
+                        )
+                    }
                 };
                 for item in items {
                     frame.locals.insert(var.name.clone(), item);
@@ -354,7 +381,10 @@ impl<'t> Interp<'t> {
     /// Expression statements: `match`, the test intrinsics, event firing, or a
     /// plain side-effecting expression.
     fn exec_expr_stmt(&self, e: &Expr, world: &mut World, frame: &mut Frame) -> R<()> {
-        if let Expr::Match { scrutinee, arms, .. } = e {
+        if let Expr::Match {
+            scrutinee, arms, ..
+        } = e
+        {
             return self.exec_match(scrutinee, arms, world, frame);
         }
         if let Expr::Call { callee, args, span } = e {
@@ -379,7 +409,11 @@ impl<'t> Interp<'t> {
                     if field.name == "file" && self.file_handlers.contains_key(&src) {
                         return self.fire_file(&src, args, world, frame, span);
                     }
-                    if let Some(h) = self.handlers.get(&(src.clone(), field.name.clone())).copied() {
+                    if let Some(h) = self
+                        .handlers
+                        .get(&(src.clone(), field.name.clone()))
+                        .copied()
+                    {
                         return match h.kind {
                             HandlerKind::Call => self.fire_call(h, args, world, frame, span),
                             _ => self.fire(&src, &field.name, args, world, frame, span),
@@ -451,7 +485,14 @@ impl<'t> Interp<'t> {
 
     // ---- intrinsics ----
 
-    fn do_mock(&self, args: &[Expr], world: &mut World, frame: &mut Frame, revert: bool, span: &Span) -> R<()> {
+    fn do_mock(
+        &self,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        revert: bool,
+        span: &Span,
+    ) -> R<()> {
         let call = args.first().ok_or_else(|| TError {
             message: "mock needs a contract call as its first argument".into(),
             span: Some(span.clone()),
@@ -460,10 +501,14 @@ impl<'t> Interp<'t> {
         let mock = if revert {
             Mock::Revert
         } else {
-            let v = self.eval(args.get(1).ok_or_else(|| TError {
-                message: "mockCall needs a return value as its second argument".into(),
-                span: Some(span.clone()),
-            })?, world, frame)?;
+            let v = self.eval(
+                args.get(1).ok_or_else(|| TError {
+                    message: "mockCall needs a return value as its second argument".into(),
+                    span: Some(span.clone()),
+                })?,
+                world,
+                frame,
+            )?;
             Mock::Return(v)
         };
         world.mocks.insert(key, mock);
@@ -473,10 +518,16 @@ impl<'t> Interp<'t> {
     /// Build the `func(arg,arg)` key from an unevaluated `Abi.func(args)` call.
     fn mock_key(&self, call: &Expr, world: &mut World, frame: &mut Frame) -> R<String> {
         let Expr::Call { callee, args, .. } = call else {
-            return err("expected a contract call like `ERC20.balanceOf(addr)`", Some(call.span().clone()));
+            return err(
+                "expected a contract call like `ERC20.balanceOf(addr)`",
+                Some(call.span().clone()),
+            );
         };
         let Expr::Field { field, .. } = callee.as_ref() else {
-            return err("expected a contract call like `ERC20.balanceOf(addr)`", Some(call.span().clone()));
+            return err(
+                "expected a contract call like `ERC20.balanceOf(addr)`",
+                Some(call.span().clone()),
+            );
         };
         let mut parts = Vec::new();
         for a in args {
@@ -486,10 +537,14 @@ impl<'t> Interp<'t> {
     }
 
     fn do_assert(&self, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
-        let cond = self.eval(args.first().ok_or_else(|| TError {
-            message: "assert needs a condition".into(),
-            span: Some(span.clone()),
-        })?, world, frame)?;
+        let cond = self.eval(
+            args.first().ok_or_else(|| TError {
+                message: "assert needs a condition".into(),
+                span: Some(span.clone()),
+            })?,
+            world,
+            frame,
+        )?;
         match cond.as_bool() {
             Some(true) => Ok(()),
             Some(false) => err("assertion failed", Some(span.clone())),
@@ -497,43 +552,101 @@ impl<'t> Interp<'t> {
         }
     }
 
-    fn do_assert_eq(&self, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
-        let a = self.eval(args.first().ok_or_else(|| TError { message: "assertEq needs two arguments".into(), span: Some(span.clone()) })?, world, frame)?;
-        let b = self.eval(args.get(1).ok_or_else(|| TError { message: "assertEq needs two arguments".into(), span: Some(span.clone()) })?, world, frame)?;
+    fn do_assert_eq(
+        &self,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<()> {
+        let a = self.eval(
+            args.first().ok_or_else(|| TError {
+                message: "assertEq needs two arguments".into(),
+                span: Some(span.clone()),
+            })?,
+            world,
+            frame,
+        )?;
+        let b = self.eval(
+            args.get(1).ok_or_else(|| TError {
+                message: "assertEq needs two arguments".into(),
+                span: Some(span.clone()),
+            })?,
+            world,
+            frame,
+        )?;
         if value_eq(&a, &b) {
             Ok(())
         } else {
             err(
-                format!("assertEq failed: left = {}, right = {}", a.canonical(), b.canonical()),
+                format!(
+                    "assertEq failed: left = {}, right = {}",
+                    a.canonical(),
+                    b.canonical()
+                ),
                 Some(span.clone()),
             )
         }
     }
 
     /// `assertCreated(Template, addr)` — assert a dynamic data source was spawned.
-    fn do_assert_created(&self, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
-        let tmpl = args
-            .first()
-            .and_then(single_path)
-            .ok_or_else(|| TError { message: "assertCreated needs a template name and an address".into(), span: Some(span.clone()) })?;
+    fn do_assert_created(
+        &self,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<()> {
+        let tmpl = args.first().and_then(single_path).ok_or_else(|| TError {
+            message: "assertCreated needs a template name and an address".into(),
+            span: Some(span.clone()),
+        })?;
         let addr = self
-            .eval(args.get(1).ok_or_else(|| TError { message: "assertCreated needs an address".into(), span: Some(span.clone()) })?, world, frame)?
+            .eval(
+                args.get(1).ok_or_else(|| TError {
+                    message: "assertCreated needs an address".into(),
+                    span: Some(span.clone()),
+                })?,
+                world,
+                frame,
+            )?
             .as_bytes()
-            .ok_or_else(|| TError { message: "assertCreated address must be Bytes/Address".into(), span: Some(span.clone()) })?;
+            .ok_or_else(|| TError {
+                message: "assertCreated address must be Bytes/Address".into(),
+                span: Some(span.clone()),
+            })?;
         if world.created.iter().any(|(t, a)| t == &tmpl && a == &addr) {
             Ok(())
         } else {
-            err(format!("assertCreated failed: no `{tmpl}` data source created at 0x{}", hex(&addr)), Some(span.clone()))
+            err(
+                format!(
+                    "assertCreated failed: no `{tmpl}` data source created at 0x{}",
+                    hex(&addr)
+                ),
+                Some(span.clone()),
+            )
         }
     }
 
     // ---- event firing ----
 
-    fn fire(&self, source: &str, event: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
-        let handler = self.handlers.get(&(source.to_string(), event.to_string())).copied().ok_or_else(|| TError {
-            message: format!("no handler for `{source}.{event}`"),
-            span: Some(span.clone()),
-        })?;
+    fn fire(
+        &self,
+        source: &str,
+        event: &str,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<()> {
+        let handler = self
+            .handlers
+            .get(&(source.to_string(), event.to_string()))
+            .copied()
+            .ok_or_else(|| TError {
+                message: format!("no handler for `{source}.{event}`"),
+                span: Some(span.clone()),
+            })?;
 
         // Build the event from the record literal argument.
         let mut ev = EventVal {
@@ -551,7 +664,12 @@ impl<'t> Interp<'t> {
                     // `_`-prefixed keys override event metadata, not params.
                     "_timestamp" => ev.block_timestamp = v.to_bigint().unwrap_or_default(),
                     "_block" => ev.block_number = v.to_bigint().unwrap_or_default(),
-                    "_logIndex" => ev.log_index = v.to_bigint().and_then(|b| i64::try_from(b).ok()).unwrap_or(0),
+                    "_logIndex" => {
+                        ev.log_index = v
+                            .to_bigint()
+                            .and_then(|b| i64::try_from(b).ok())
+                            .unwrap_or(0)
+                    }
                     "_address" => ev.address = v.as_bytes().unwrap_or_default(),
                     "_txHash" => ev.tx_hash = v.as_bytes().unwrap_or_else(|| vec![0u8; 32]),
                     _ => {
@@ -573,7 +691,14 @@ impl<'t> Interp<'t> {
     }
 
     /// Fire a source's block handlers with a synthesised `ethereum.Block`.
-    fn fire_block(&self, source: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
+    fn fire_block(
+        &self,
+        source: &str,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<()> {
         let mut ev = EventVal {
             params: BTreeMap::new(),
             address: self.source_addr.get(source).cloned().unwrap_or_default(),
@@ -587,7 +712,9 @@ impl<'t> Interp<'t> {
                 let v = self.eval(vexpr, world, frame)?;
                 match k.name.as_str() {
                     "_block" | "number" => ev.block_number = v.to_bigint().unwrap_or_default(),
-                    "_timestamp" | "timestamp" => ev.block_timestamp = v.to_bigint().unwrap_or_default(),
+                    "_timestamp" | "timestamp" => {
+                        ev.block_timestamp = v.to_bigint().unwrap_or_default()
+                    }
                     "_address" => ev.address = v.as_bytes().unwrap_or_default(),
                     _ => {}
                 }
@@ -595,28 +722,44 @@ impl<'t> Interp<'t> {
         }
         let handlers = self.block_handlers.get(source).cloned().unwrap_or_default();
         if handlers.is_empty() {
-            return err(format!("no block handler for `{source}`"), Some(span.clone()));
+            return err(
+                format!("no block handler for `{source}`"),
+                Some(span.clone()),
+            );
         }
         for handler in handlers {
             let mut hframe = Frame {
-                locals: HashMap::from([(handler.param.name.clone(), Value::EventBlock(Box::new(ev.clone())))]),
+                locals: HashMap::from([(
+                    handler.param.name.clone(),
+                    Value::EventBlock(Box::new(ev.clone())),
+                )]),
                 returned: false,
                 return_value: None,
             };
             self.exec_block(&handler.body, world, &mut hframe)?;
             flush(world);
-        world.working.clear();
+            world.working.clear();
         }
         Ok(())
     }
 
     /// Fire a file/IPFS handler with the file contents as its `Bytes` param.
-    fn fire_file(&self, template: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
+    fn fire_file(
+        &self,
+        template: &str,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<()> {
         let handler = self
             .file_handlers
             .get(template)
             .copied()
-            .ok_or_else(|| TError { message: format!("no file handler for `{template}`"), span: Some(span.clone()) })?;
+            .ok_or_else(|| TError {
+                message: format!("no file handler for `{template}`"),
+                span: Some(span.clone()),
+            })?;
         let content = match args.first() {
             Some(e) => self.eval(e, world, frame)?,
             None => Value::Bytes(Vec::new()),
@@ -635,11 +778,22 @@ impl<'t> Interp<'t> {
     /// Fire a call handler with a synthesised call object. Record keys populate
     /// `call.inputs`; `_out_<name>` keys populate `call.outputs`; `_block` /
     /// `_timestamp` / `_address` / `_txHash` set chain metadata.
-    fn fire_call(&self, handler: &HandlerDecl, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<()> {
+    fn fire_call(
+        &self,
+        handler: &HandlerDecl,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<()> {
         let mut call = CallVal {
             inputs: BTreeMap::new(),
             outputs: BTreeMap::new(),
-            address: self.source_addr.get(&handler.source.name).cloned().unwrap_or_default(),
+            address: self
+                .source_addr
+                .get(&handler.source.name)
+                .cloned()
+                .unwrap_or_default(),
             block_number: BigInt::from(0),
             block_timestamp: BigInt::from(0),
             tx_hash: vec![0u8; 32],
@@ -683,7 +837,9 @@ impl<'t> Interp<'t> {
                 .map(Value::Int)
                 .unwrap_or_else(|_| Value::Big(BigInt::from_str(raw).unwrap_or_default()))),
             Expr::Hex { raw, .. } => Ok(Value::Bytes(hex_to_bytes(raw).unwrap_or_default())),
-            Expr::Decimal { raw, .. } => Ok(Value::Dec(BigDecimal::from_str(raw).unwrap_or_default())),
+            Expr::Decimal { raw, .. } => {
+                Ok(Value::Dec(BigDecimal::from_str(raw).unwrap_or_default()))
+            }
             Expr::Str { value, .. } => Ok(Value::Str(value.clone())),
             Expr::Bool { value, .. } => Ok(Value::Bool(*value)),
             Expr::Path { segments, span } => {
@@ -692,9 +848,14 @@ impl<'t> Interp<'t> {
                         return Ok(v.clone());
                     }
                 }
-                err(format!("unknown identifier `{}`", path_str(segments)), Some(span.clone()))
+                err(
+                    format!("unknown identifier `{}`", path_str(segments)),
+                    Some(span.clone()),
+                )
             }
-            Expr::Field { base, field, span } => self.eval_field(base, &field.name, world, frame, span),
+            Expr::Field { base, field, span } => {
+                self.eval_field(base, &field.name, world, frame, span)
+            }
             Expr::Call { callee, args, span } => self.eval_call(callee, args, world, frame, span),
             Expr::Unary { op, expr, .. } => {
                 let v = self.eval(expr, world, frame)?;
@@ -706,7 +867,9 @@ impl<'t> Interp<'t> {
                     },
                 }
             }
-            Expr::Binary { op, lhs, rhs, span } => self.eval_binary(*op, lhs, rhs, world, frame, span),
+            Expr::Binary { op, lhs, rhs, span } => {
+                self.eval_binary(*op, lhs, rhs, world, frame, span)
+            }
             Expr::Array { elems, .. } => {
                 let mut items = Vec::with_capacity(elems.len());
                 for e in elems {
@@ -723,15 +886,34 @@ impl<'t> Interp<'t> {
                 let i = iv
                     .to_bigint()
                     .and_then(|b| usize::try_from(b).ok())
-                    .ok_or_else(|| TError { message: "array index must be a non-negative integer".into(), span: Some(index.span().clone()) })?;
-                items.get(i).cloned().ok_or_else(|| TError { message: format!("array index {i} out of bounds (len {})", items.len()), span: Some(span.clone()) })
+                    .ok_or_else(|| TError {
+                        message: "array index must be a non-negative integer".into(),
+                        span: Some(index.span().clone()),
+                    })?;
+                items.get(i).cloned().ok_or_else(|| TError {
+                    message: format!("array index {i} out of bounds (len {})", items.len()),
+                    span: Some(span.clone()),
+                })
             }
-            Expr::Record { span, .. } => err("a record is only valid as a constructor or event argument", Some(span.clone())),
-            Expr::Match { span, .. } => err("`match` is only supported as a statement", Some(span.clone())),
+            Expr::Record { span, .. } => err(
+                "a record is only valid as a constructor or event argument",
+                Some(span.clone()),
+            ),
+            Expr::Match { span, .. } => err(
+                "`match` is only supported as a statement",
+                Some(span.clone()),
+            ),
         }
     }
 
-    fn eval_field(&self, base: &Expr, field: &str, world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+    fn eval_field(
+        &self,
+        base: &Expr,
+        field: &str,
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<Value> {
         // `BigInt.zero` / `BigDecimal.zero`.
         if field == "zero" {
             if let Some(name) = single_path(base) {
@@ -755,11 +937,10 @@ impl<'t> Interp<'t> {
                 "id" => Ok(Value::Bytes(make_id(&ev))),
                 _ => err(format!("event has no field `{field}`"), Some(span.clone())),
             },
-            Value::EventParams(ev) => ev
-                .params
-                .get(field)
-                .cloned()
-                .ok_or_else(|| TError { message: format!("event has no parameter `{field}`"), span: Some(span.clone()) }),
+            Value::EventParams(ev) => ev.params.get(field).cloned().ok_or_else(|| TError {
+                message: format!("event has no parameter `{field}`"),
+                span: Some(span.clone()),
+            }),
             Value::EventBlock(ev) => match field {
                 "timestamp" => Ok(Value::Big(ev.block_timestamp)),
                 "number" => Ok(Value::Big(ev.block_number)),
@@ -768,7 +949,10 @@ impl<'t> Interp<'t> {
             },
             Value::EventTx(ev) => match field {
                 "hash" => Ok(Value::Bytes(ev.tx_hash)),
-                _ => err(format!("transaction has no field `{field}`"), Some(span.clone())),
+                _ => err(
+                    format!("transaction has no field `{field}`"),
+                    Some(span.clone()),
+                ),
             },
             Value::Call(c) => match field {
                 "inputs" => Ok(Value::CallInputs(c)),
@@ -778,32 +962,44 @@ impl<'t> Interp<'t> {
                 "to" | "from" | "address" => Ok(Value::Bytes(c.address)),
                 _ => err(format!("call has no field `{field}`"), Some(span.clone())),
             },
-            Value::CallInputs(c) => c
-                .inputs
-                .get(field)
-                .cloned()
-                .ok_or_else(|| TError { message: format!("call has no input `{field}`"), span: Some(span.clone()) }),
-            Value::CallOutputs(c) => c
-                .outputs
-                .get(field)
-                .cloned()
-                .ok_or_else(|| TError { message: format!("call has no output `{field}`"), span: Some(span.clone()) }),
+            Value::CallInputs(c) => c.inputs.get(field).cloned().ok_or_else(|| TError {
+                message: format!("call has no input `{field}`"),
+                span: Some(span.clone()),
+            }),
+            Value::CallOutputs(c) => c.outputs.get(field).cloned().ok_or_else(|| TError {
+                message: format!("call has no output `{field}`"),
+                span: Some(span.clone()),
+            }),
             Value::Array(ref items) => match field {
                 "length" => Ok(Value::Int(items.len() as i64)),
                 _ => err(format!("array has no field `{field}`"), Some(span.clone())),
             },
-            Value::Handle(h) => Ok(world.working[h].fields.get(field).cloned().unwrap_or(Value::Null)),
+            Value::Handle(h) => Ok(world.working[h]
+                .fields
+                .get(field)
+                .cloned()
+                .unwrap_or(Value::Null)),
             Value::Stored(_, fields) => Ok(fields.get(field).cloned().unwrap_or(Value::Null)),
             Value::Result { reverted, value } => match field {
                 "reverted" => Ok(Value::Bool(reverted)),
                 "value" => Ok(*value),
                 _ => err(format!("result has no field `{field}`"), Some(span.clone())),
             },
-            other => err(format!("value `{}` has no field `{field}`", other.canonical()), Some(span.clone())),
+            other => err(
+                format!("value `{}` has no field `{field}`", other.canonical()),
+                Some(span.clone()),
+            ),
         }
     }
 
-    fn eval_call(&self, callee: &Expr, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+    fn eval_call(
+        &self,
+        callee: &Expr,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<Value> {
         // A bare call to a user helper function.
         if let Some(name) = single_path(callee) {
             if let Some(func) = self.fns.get(&name).copied() {
@@ -842,9 +1038,13 @@ impl<'t> Interp<'t> {
             // evaluating, or `Account` looks like an unknown identifier.
             if let Some(entity) = entity_of(base) {
                 match field.name.as_str() {
-                    "loadOrCreate" => return self.load_or_create(&entity, args, world, frame, true, span),
+                    "loadOrCreate" => {
+                        return self.load_or_create(&entity, args, world, frame, true, span)
+                    }
                     "create" => return self.create_entity(&entity, args, world, frame, span),
-                    "load" | "loadInBlock" => return self.load_entity(&entity, args, world, frame, span),
+                    "load" | "loadInBlock" => {
+                        return self.load_entity(&entity, args, world, frame, span)
+                    }
                     "at" => return self.at_entity(&entity, args, world, frame, span),
                     _ => {}
                 }
@@ -861,9 +1061,18 @@ impl<'t> Interp<'t> {
                 }
                 let key = format!("{}({})", field.name, parts.join(","));
                 return match world.mocks.get(&key) {
-                    Some(Mock::Return(v)) => Ok(Value::Result { reverted: false, value: Box::new(v.clone()) }),
-                    Some(Mock::Revert) => Ok(Value::Result { reverted: true, value: Box::new(Value::Null) }),
-                    None => err(format!("unmocked contract call `{key}` — add `mockCall({key}, …)`"), Some(span.clone())),
+                    Some(Mock::Return(v)) => Ok(Value::Result {
+                        reverted: false,
+                        value: Box::new(v.clone()),
+                    }),
+                    Some(Mock::Revert) => Ok(Value::Result {
+                        reverted: true,
+                        value: Box::new(Value::Null),
+                    }),
+                    None => err(
+                        format!("unmocked contract call `{key}` — add `mockCall({key}, …)`"),
+                        Some(span.clone()),
+                    ),
                 };
             }
 
@@ -898,19 +1107,31 @@ impl<'t> Interp<'t> {
                     }
                 }
                 "plus" | "minus" | "times" | "div" => {
-                    let rhs = args.first().map(|a| self.eval(a, world, frame)).transpose()?;
+                    let rhs = args
+                        .first()
+                        .map(|a| self.eval(a, world, frame))
+                        .transpose()?;
                     if let (Some(a), Some(b)) = (bv.to_bigint(), rhs.and_then(|r| r.to_bigint())) {
                         return Ok(Value::Big(match field.name.as_str() {
                             "plus" => a + b,
                             "minus" => a - b,
                             "times" => a * b,
-                            _ => if b == BigInt::from(0) { return err("division by zero", Some(span.clone())) } else { a / b },
+                            _ => {
+                                if b == BigInt::from(0) {
+                                    return err("division by zero", Some(span.clone()));
+                                } else {
+                                    a / b
+                                }
+                            }
                         }));
                     }
                 }
                 _ => {}
             }
-            return err(format!("unsupported method `{}`", field.name), Some(span.clone()));
+            return err(
+                format!("unsupported method `{}`", field.name),
+                Some(span.clone()),
+            );
         }
         err("unsupported call", Some(span.clone()))
     }
@@ -918,10 +1139,22 @@ impl<'t> Interp<'t> {
     /// Invoke a helper `fn`: bind params, run the body in its own frame. Working
     /// entities live in the `World`, so a returned handle stays valid in the
     /// caller and nested helpers share each other's in-block writes.
-    fn invoke_fn(&self, func: &redstart_parser::ast::FnDecl, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+    fn invoke_fn(
+        &self,
+        func: &redstart_parser::ast::FnDecl,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<Value> {
         if func.params.len() != args.len() {
             return err(
-                format!("`{}` expects {} argument(s), got {}", func.name.name, func.params.len(), args.len()),
+                format!(
+                    "`{}` expects {} argument(s), got {}",
+                    func.name.name,
+                    func.params.len(),
+                    args.len()
+                ),
                 Some(span.clone()),
             );
         }
@@ -940,54 +1173,118 @@ impl<'t> Interp<'t> {
     }
 
     fn handle_for(&self, entity: &str, id: &[u8], world: &World) -> Option<usize> {
-        world.working.iter().position(|w| w.entity == entity && w.id == id)
+        world
+            .working
+            .iter()
+            .position(|w| w.entity == entity && w.id == id)
     }
 
-    fn load_or_create(&self, entity: &str, args: &[Expr], world: &mut World, frame: &mut Frame, _create: bool, span: &Span) -> R<Value> {
+    fn load_or_create(
+        &self,
+        entity: &str,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        _create: bool,
+        span: &Span,
+    ) -> R<Value> {
         let id = self.eval_id(args, world, frame, span)?;
         if let Some(h) = self.handle_for(entity, &id, world) {
             return Ok(Value::Handle(h));
         }
         if let Some(fields) = world.store.get(&(entity.to_string(), id.clone())) {
-            world.working.push(WorkingEntity { entity: entity.to_string(), id, fields: fields.clone(), dirty: false });
+            world.working.push(WorkingEntity {
+                entity: entity.to_string(),
+                id,
+                fields: fields.clone(),
+                dirty: false,
+            });
             return Ok(Value::Handle(world.working.len() - 1));
         }
         // Create with the provided initializers.
         let fields = self.record_fields(args.get(1), world, frame, &id)?;
-        world.working.push(WorkingEntity { entity: entity.to_string(), id, fields, dirty: true });
+        world.working.push(WorkingEntity {
+            entity: entity.to_string(),
+            id,
+            fields,
+            dirty: true,
+        });
         Ok(Value::Handle(world.working.len() - 1))
     }
 
-    fn create_entity(&self, entity: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+    fn create_entity(
+        &self,
+        entity: &str,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<Value> {
         let id = self.eval_id(args, world, frame, span)?;
         let fields = self.record_fields(args.get(1), world, frame, &id)?;
-        world.working.push(WorkingEntity { entity: entity.to_string(), id, fields, dirty: true });
+        world.working.push(WorkingEntity {
+            entity: entity.to_string(),
+            id,
+            fields,
+            dirty: true,
+        });
         Ok(Value::Handle(world.working.len() - 1))
     }
 
-    fn load_entity(&self, entity: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+    fn load_entity(
+        &self,
+        entity: &str,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<Value> {
         let id = self.eval_id(args, world, frame, span)?;
         if let Some(h) = self.handle_for(entity, &id, world) {
             return Ok(Value::Handle(h));
         }
         if let Some(fields) = world.store.get(&(entity.to_string(), id.clone())) {
-            world.working.push(WorkingEntity { entity: entity.to_string(), id, fields: fields.clone(), dirty: false });
+            world.working.push(WorkingEntity {
+                entity: entity.to_string(),
+                id,
+                fields: fields.clone(),
+                dirty: false,
+            });
             Ok(Value::Handle(world.working.len() - 1))
         } else {
             Ok(Value::Null)
         }
     }
 
-    fn at_entity(&self, entity: &str, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+    fn at_entity(
+        &self,
+        entity: &str,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<Value> {
         let id = self.eval_id(args, world, frame, span)?;
         match world.store.get(&(entity.to_string(), id.clone())) {
             Some(fields) => Ok(Value::Stored(entity.to_string(), fields.clone())),
-            None => err(format!("no `{entity}` with id 0x{}", hex(&id)), Some(span.clone())),
+            None => err(
+                format!("no `{entity}` with id 0x{}", hex(&id)),
+                Some(span.clone()),
+            ),
         }
     }
 
-    fn eval_id(&self, args: &[Expr], world: &mut World, frame: &mut Frame, span: &Span) -> R<Vec<u8>> {
-        let id_expr = args.first().ok_or_else(|| TError { message: "missing id argument".into(), span: Some(span.clone()) })?;
+    fn eval_id(
+        &self,
+        args: &[Expr],
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<Vec<u8>> {
+        let id_expr = args.first().ok_or_else(|| TError {
+            message: "missing id argument".into(),
+            span: Some(span.clone()),
+        })?;
         let v = self.eval(id_expr, world, frame)?;
         // Entity ids may be Bytes/Address, a String (composite ids), or an
         // integer (Int8 timeseries ids) — all reduce to a stable byte key.
@@ -997,11 +1294,20 @@ impl<'t> Interp<'t> {
             _ => v
                 .to_bigint()
                 .map(|b| b.to_string().into_bytes())
-                .ok_or_else(|| TError { message: "entity id must be Bytes/Address, String, or an integer".into(), span: Some(id_expr.span().clone()) }),
+                .ok_or_else(|| TError {
+                    message: "entity id must be Bytes/Address, String, or an integer".into(),
+                    span: Some(id_expr.span().clone()),
+                }),
         }
     }
 
-    fn record_fields(&self, arg: Option<&Expr>, world: &mut World, frame: &mut Frame, id: &[u8]) -> R<BTreeMap<String, Value>> {
+    fn record_fields(
+        &self,
+        arg: Option<&Expr>,
+        world: &mut World,
+        frame: &mut Frame,
+        id: &[u8],
+    ) -> R<BTreeMap<String, Value>> {
         let mut fields = BTreeMap::new();
         fields.insert("id".to_string(), Value::Bytes(id.to_vec()));
         if let Some(Expr::Record { fields: rec, .. }) = arg {
@@ -1018,7 +1324,15 @@ impl<'t> Interp<'t> {
         Ok(fields)
     }
 
-    fn eval_binary(&self, op: BinOp, lhs: &Expr, rhs: &Expr, world: &mut World, frame: &mut Frame, span: &Span) -> R<Value> {
+    fn eval_binary(
+        &self,
+        op: BinOp,
+        lhs: &Expr,
+        rhs: &Expr,
+        world: &mut World,
+        frame: &mut Frame,
+        span: &Span,
+    ) -> R<Value> {
         // Short-circuit logical operators.
         if matches!(op, BinOp::And | BinOp::Or) {
             let l = self.eval(lhs, world, frame)?.as_bool().unwrap_or(false);
@@ -1028,7 +1342,9 @@ impl<'t> Interp<'t> {
             if op == BinOp::Or && l {
                 return Ok(Value::Bool(true));
             }
-            return Ok(Value::Bool(self.eval(rhs, world, frame)?.as_bool().unwrap_or(false)));
+            return Ok(Value::Bool(
+                self.eval(rhs, world, frame)?.as_bool().unwrap_or(false),
+            ));
         }
 
         let l = self.eval(lhs, world, frame)?;
@@ -1103,7 +1419,9 @@ fn dec_op(op: BinOp, a: BigDecimal, b: BigDecimal, span: &Span) -> R<Value> {
 fn flush(world: &mut World) {
     for w in &world.working {
         if w.dirty {
-            world.store.insert((w.entity.clone(), w.id.clone()), w.fields.clone());
+            world
+                .store
+                .insert((w.entity.clone(), w.id.clone()), w.fields.clone());
         }
     }
 }
@@ -1137,17 +1455,24 @@ fn path_name(e: &Expr) -> Option<String> {
 }
 
 fn path_str(segments: &[redstart_parser::Ident]) -> String {
-    segments.iter().map(|s| s.name.clone()).collect::<Vec<_>>().join("::")
+    segments
+        .iter()
+        .map(|s| s.name.clone())
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
 fn setting_addr(settings: &[redstart_parser::ast::Setting]) -> Option<Vec<u8>> {
-    settings.iter().find(|s| s.key.name == "address").and_then(|s| {
-        if let Expr::Hex { raw, .. } = &s.value {
-            hex_to_bytes(raw)
-        } else {
-            None
-        }
-    })
+    settings
+        .iter()
+        .find(|s| s.key.name == "address")
+        .and_then(|s| {
+            if let Expr::Hex { raw, .. } = &s.value {
+                hex_to_bytes(raw)
+            } else {
+                None
+            }
+        })
 }
 
 fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {
@@ -1157,7 +1482,10 @@ fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {
     } else {
         s.to_string()
     };
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+        .collect()
 }
 
 fn hex(bytes: &[u8]) -> String {

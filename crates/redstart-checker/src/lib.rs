@@ -25,13 +25,13 @@ pub mod ty;
 
 pub use abi::{resolve_abi_path, AbiIndex, EventParam};
 pub use diag::Diag;
-pub use ty::{is_scalar, resolve_type, sol_to_rty, EntityInfo, RTy};
 use redstart_loader::ModuleTree;
 use redstart_parser::ast::{
     EntityDecl, Expr, FieldDecl, ForIter, HandlerDecl, HandlerKind, MatchArm, Pattern, Setting,
     SourceDecl, Stmt, TemplateDecl, TypeExpr,
 };
 use std::collections::HashMap;
+pub use ty::{is_scalar, resolve_type, sol_to_rty, EntityInfo, RTy};
 
 /// The validated symbol table produced by a successful [`check`].
 pub struct Checked {
@@ -77,7 +77,10 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
     // ---- global symbol build ----
     let mut abis = AbiIndex::default();
     for m in &modules {
-        let dir = m.file_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let dir = m
+            .file_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
         for a in &m.program.abis {
             abis.insert(a.name.name.clone(), resolve_abi_path(dir, &a.path));
         }
@@ -91,8 +94,14 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
         for e in &m.program.entities {
             if seen.insert(e.name.name.clone(), ()).is_some() {
                 diags.push(
-                    Diag::new(file, &e.name.span, "E010", format!("duplicate entity `{}`", e.name.name), "already declared")
-                        .with_help("each entity must be declared exactly once across all modules"),
+                    Diag::new(
+                        file,
+                        &e.name.span,
+                        "E010",
+                        format!("duplicate entity `{}`", e.name.name),
+                        "already declared",
+                    )
+                    .with_help("each entity must be declared exactly once across all modules"),
                 );
             }
             entities.insert(e.name.name.clone(), EntityInfo::default());
@@ -139,7 +148,12 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
     let interfaces: HashMap<String, Vec<String>> = modules
         .iter()
         .flat_map(|m| &m.program.interfaces)
-        .map(|i| (i.name.name.clone(), i.fields.iter().map(|f| f.name.name.clone()).collect()))
+        .map(|i| {
+            (
+                i.name.name.clone(),
+                i.fields.iter().map(|f| f.name.name.clone()).collect(),
+            )
+        })
         .collect();
     // Interface and enum names are both valid field types.
     let mut aux_types = enum_names.clone();
@@ -149,7 +163,11 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
     let fn_returns: HashMap<String, RTy> = modules
         .iter()
         .flat_map(|m| &m.program.functions)
-        .filter_map(|f| f.ret.as_ref().map(|t| (f.name.name.clone(), resolve_type(t, &entities))))
+        .filter_map(|f| {
+            f.ret
+                .as_ref()
+                .map(|t| (f.name.name.clone(), resolve_type(t, &entities)))
+        })
         .collect();
 
     for (m, file) in modules.iter().zip(&files) {
@@ -165,8 +183,17 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
         for agg in &m.program.aggregations {
             if !entity_names.iter().any(|n| n == &agg.source.name) {
                 diags.push(
-                    Diag::new(file, &agg.source.span, "E005", format!("aggregation `{}` sources unknown entity `{}`", agg.name.name, agg.source.name), "no such entity")
-                        .with_help("`over <Entity>` must name a `timeseries` entity"),
+                    Diag::new(
+                        file,
+                        &agg.source.span,
+                        "E005",
+                        format!(
+                            "aggregation `{}` sources unknown entity `{}`",
+                            agg.name.name, agg.source.name
+                        ),
+                        "no such entity",
+                    )
+                    .with_help("`over <Entity>` must name a `timeseries` entity"),
                 );
             }
             for f in &agg.fields {
@@ -193,7 +220,15 @@ fn analyze(tree: &ModuleTree) -> (Checked, Vec<Diag>) {
             );
         }
         for func in &m.program.functions {
-            check_fn(func, &entities, &entity_meta, &fn_returns, &abis, file, &mut diags);
+            check_fn(
+                func,
+                &entities,
+                &entity_meta,
+                &fn_returns,
+                &abis,
+                file,
+                &mut diags,
+            );
         }
     }
 
@@ -286,16 +321,33 @@ fn check_implements(
     for iface in &e.implements {
         let Some(iface_fields) = interfaces.get(&iface.name) else {
             diags.push(
-                Diag::new(file, &iface.span, "E003", format!("unknown interface `{}`", iface.name), "not a declared interface")
-                    .with_help("declare it with `interface Name { … }`"),
+                Diag::new(
+                    file,
+                    &iface.span,
+                    "E003",
+                    format!("unknown interface `{}`", iface.name),
+                    "not a declared interface",
+                )
+                .with_help("declare it with `interface Name { … }`"),
             );
             continue;
         };
         for field in iface_fields {
             if !e.fields.iter().any(|f| &f.name.name == field) {
                 diags.push(
-                    Diag::new(file, &e.name.span, "E004", format!("`{}` implements `{}` but is missing field `{field}`", e.name.name, iface.name), "missing interface field")
-                        .with_help("an entity must redeclare every field of the interfaces it implements"),
+                    Diag::new(
+                        file,
+                        &e.name.span,
+                        "E004",
+                        format!(
+                            "`{}` implements `{}` but is missing field `{field}`",
+                            e.name.name, iface.name
+                        ),
+                        "missing interface field",
+                    )
+                    .with_help(
+                        "an entity must redeclare every field of the interfaces it implements",
+                    ),
                 );
             }
         }
@@ -312,8 +364,14 @@ fn check_derived(
 ) {
     let Some(target) = entity_name_of(&f.ty) else {
         diags.push(
-            Diag::new(file, f.ty.span(), "E020", "a `derived from` field must reference an entity", "not an entity type")
-                .with_help("derived fields look like `swaps: [Swap] derived from pool`"),
+            Diag::new(
+                file,
+                f.ty.span(),
+                "E020",
+                "a `derived from` field must reference an entity",
+                "not an entity type",
+            )
+            .with_help("derived fields look like `swaps: [Swap] derived from pool`"),
         );
         return;
     };
@@ -330,7 +388,10 @@ fn check_derived(
                 format!("`{target}` has no field `{}` to derive from", back.name),
                 "no such field",
             )
-            .with_help(format!("add a `{}: {}` field to `{target}`", back.name, "…")),
+            .with_help(format!(
+                "add a `{}: {}` field to `{target}`",
+                back.name, "…"
+            )),
         ),
         None => {}
     }
@@ -340,8 +401,14 @@ fn check_source(s: &SourceDecl, abis: &AbiIndex, file: &str, diags: &mut Vec<Dia
     for key in ["abi", "network", "address", "startBlock"] {
         if get_setting(&s.settings, key).is_none() {
             diags.push(
-                Diag::new(file, &s.name.span, "E030", format!("source `{}` is missing `{key}`", s.name.name), format!("add `{key}: …`"))
-                    .with_help("a source needs `abi`, `network`, `address`, and `startBlock`"),
+                Diag::new(
+                    file,
+                    &s.name.span,
+                    "E030",
+                    format!("source `{}` is missing `{key}`", s.name.name),
+                    format!("add `{key}: …`"),
+                )
+                .with_help("a source needs `abi`, `network`, `address`, and `startBlock`"),
             );
         }
     }
@@ -370,7 +437,9 @@ fn check_template(t: &TemplateDecl, abis: &AbiIndex, file: &str, diags: &mut Vec
 /// Whether a template declares `kind: file` (a file/IPFS data source).
 fn is_file_template(t: &TemplateDecl) -> bool {
     matches!(
-        get_setting(&t.settings, "kind").and_then(|s| path_name(&s.value)).as_deref(),
+        get_setting(&t.settings, "kind")
+            .and_then(|s| path_name(&s.value))
+            .as_deref(),
         Some("file" | "ipfs")
     )
 }
@@ -380,8 +449,16 @@ fn check_abi_ref(settings: &[Setting], abis: &AbiIndex, file: &str, diags: &mut 
         if let Some(name) = path_name(&setting.value) {
             if !abis.paths.contains_key(&name) {
                 diags.push(
-                    Diag::new(file, setting.value.span(), "E032", format!("unknown ABI `{name}`"), "not imported")
-                        .with_help(format!("import it with `abi {name} from \"./abis/{name}.json\"`")),
+                    Diag::new(
+                        file,
+                        setting.value.span(),
+                        "E032",
+                        format!("unknown ABI `{name}`"),
+                        "not imported",
+                    )
+                    .with_help(format!(
+                        "import it with `abi {name} from \"./abis/{name}.json\"`"
+                    )),
                 );
             }
         }
@@ -403,8 +480,14 @@ fn check_handler(
     // The source must exist.
     if !data_sources.contains_key(&h.source.name) {
         diags.push(
-            Diag::new(file, &h.source.span, "E040", format!("unknown source `{}`", h.source.name), "no such source or template")
-                .with_help("declare it with a `source` (or `template`) block"),
+            Diag::new(
+                file,
+                &h.source.span,
+                "E040",
+                format!("unknown source `{}`", h.source.name),
+                "no such source or template",
+            )
+            .with_help("declare it with a `source` (or `template`) block"),
         );
         return;
     }
@@ -416,17 +499,36 @@ fn check_handler(
         HandlerKind::Event => {
             if abis.readable(&abi_name) && abis.event_params(&abi_name, &h.event.name).is_none() {
                 diags.push(
-                    Diag::new(file, &h.event.span, "E041", format!("event `{}` not found in ABI `{abi_name}`", h.event.name), "no such event")
-                        .with_help("check the event name and casing against the ABI"),
+                    Diag::new(
+                        file,
+                        &h.event.span,
+                        "E041",
+                        format!("event `{}` not found in ABI `{abi_name}`", h.event.name),
+                        "no such event",
+                    )
+                    .with_help("check the event name and casing against the ABI"),
                 );
             }
-            (RTy::Event, rty_map(abis.event_params(&abi_name, &h.event.name)), HashMap::new())
+            (
+                RTy::Event,
+                rty_map(abis.event_params(&abi_name, &h.event.name)),
+                HashMap::new(),
+            )
         }
         HandlerKind::Call => {
-            if abis.readable(&abi_name) && abis.function_inputs(&abi_name, &h.event.name).is_none() {
+            if abis.readable(&abi_name) && abis.function_inputs(&abi_name, &h.event.name).is_none()
+            {
                 diags.push(
-                    Diag::new(file, &h.event.span, "E042", format!("function `{}` not found in ABI `{abi_name}`", h.event.name), "no such function")
-                        .with_help("call handlers bind a contract function by name — check it against the ABI"),
+                    Diag::new(
+                        file,
+                        &h.event.span,
+                        "E042",
+                        format!("function `{}` not found in ABI `{abi_name}`", h.event.name),
+                        "no such function",
+                    )
+                    .with_help(
+                        "call handlers bind a contract function by name — check it against the ABI",
+                    ),
                 );
             }
             (
@@ -568,14 +670,19 @@ fn check_block(
                 let mut b = locals.clone();
                 check_block(&body.stmts, ctx, &mut b, file, diags);
             }
-            Stmt::For { var, iter, body, .. } => {
+            Stmt::For {
+                var, iter, body, ..
+            } => {
                 let elem = check_for_iter(iter, ctx, locals, file, diags);
                 let mut b = locals.clone();
                 b.insert(var.name.clone(), elem);
                 check_block(&body.stmts, ctx, &mut b, file, diags);
             }
             Stmt::Expr(e) => {
-                if let Expr::Match { scrutinee, arms, .. } = e {
+                if let Expr::Match {
+                    scrutinee, arms, ..
+                } = e
+                {
                     check_match(scrutinee, arms, ctx, locals, file, diags);
                 } else {
                     check_expr(e, ctx, locals, file, diags);
@@ -637,16 +744,25 @@ fn check_match(
 }
 
 /// Require a `match` to cover every variant (or carry a wildcard).
-fn check_exhaustive(scrutinee: &Expr, arms: &[MatchArm], scrut_ty: &RTy, file: &str, diags: &mut Vec<Diag>) {
+fn check_exhaustive(
+    scrutinee: &Expr,
+    arms: &[MatchArm],
+    scrut_ty: &RTy,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
     let required: &[&str] = match scrut_ty {
         RTy::Result(_) => &["Ok", "Err"],
         RTy::Option(_) => &["Some", "None"],
         _ => return, // unknown scrutinee — can't judge
     };
 
-    let has_wildcard = arms
-        .iter()
-        .any(|a| matches!(a.pattern, Pattern::Wildcard { .. } | Pattern::Binding { .. }));
+    let has_wildcard = arms.iter().any(|a| {
+        matches!(
+            a.pattern,
+            Pattern::Wildcard { .. } | Pattern::Binding { .. }
+        )
+    });
     if has_wildcard {
         return;
     }
@@ -665,8 +781,14 @@ fn check_exhaustive(scrutinee: &Expr, arms: &[MatchArm], scrut_ty: &RTy, file: &
         .collect();
     if !missing.is_empty() {
         diags.push(
-            Diag::new(file, scrutinee.span(), "E070", format!("non-exhaustive `match`: missing {}", missing.join(", ")), "add the missing arm(s)")
-                .with_help("every variant must be handled — or add a `_ => { … }` wildcard arm"),
+            Diag::new(
+                file,
+                scrutinee.span(),
+                "E070",
+                format!("non-exhaustive `match`: missing {}", missing.join(", ")),
+                "add the missing arm(s)",
+            )
+            .with_help("every variant must be handled — or add a `_ => { … }` wildcard arm"),
         );
     }
 }
@@ -704,7 +826,10 @@ fn check_ctor_record(
                 file,
                 value.span(),
                 "E051",
-                format!("`{entity}` is missing required field(s): {}", missing.join(", ")),
+                format!(
+                    "`{entity}` is missing required field(s): {}",
+                    missing.join(", ")
+                ),
                 "incomplete initializer",
             )
             .with_help("every non-optional field must be set when creating an entity"),
@@ -734,10 +859,22 @@ fn check_assign_target(
 ) {
     if let Expr::Field { base, field, .. } = target {
         if let RTy::Entity(entity) = infer(base, ctx, locals) {
-            if ctx.meta.get(&entity).is_some_and(|m| m.is_derived(&field.name)) {
+            if ctx
+                .meta
+                .get(&entity)
+                .is_some_and(|m| m.is_derived(&field.name))
+            {
                 diags.push(
-                    Diag::new(file, &field.span, "E053", format!("cannot assign to derived field `{}`", field.name), "derived fields are read-only")
-                        .with_help("`derived from` fields are computed from the other side of the relation"),
+                    Diag::new(
+                        file,
+                        &field.span,
+                        "E053",
+                        format!("cannot assign to derived field `{}`", field.name),
+                        "derived fields are read-only",
+                    )
+                    .with_help(
+                        "`derived from` fields are computed from the other side of the relation",
+                    ),
                 );
             }
         }
@@ -784,8 +921,14 @@ fn check_expr(
                 for side in [lhs.as_ref(), rhs.as_ref()] {
                     if infer(side, ctx, locals).is_option() {
                         diags.push(
-                            Diag::new(file, side.span(), "E061", "cannot do arithmetic on an `Option`", "unwrap this first")
-                                .with_help("use `match` or `.unwrapOr(default)` before arithmetic"),
+                            Diag::new(
+                                file,
+                                side.span(),
+                                "E061",
+                                "cannot do arithmetic on an `Option`",
+                                "unwrap this first",
+                            )
+                            .with_help("use `match` or `.unwrapOr(default)` before arithmetic"),
                         );
                     }
                 }
@@ -822,7 +965,10 @@ fn check_expr(
 
 fn is_arithmetic(op: redstart_parser::ast::BinOp) -> bool {
     use redstart_parser::ast::BinOp;
-    matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem)
+    matches!(
+        op,
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+    )
 }
 
 // ---- inference (read-only; mirrors codegen's lowering view) ----
@@ -851,7 +997,14 @@ fn infer(expr: &Expr, ctx: &BodyCtx, locals: &HashMap<String, RTy>) -> RTy {
             use redstart_parser::ast::BinOp;
             if matches!(
                 op,
-                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::And | BinOp::Or
+                BinOp::Eq
+                    | BinOp::Ne
+                    | BinOp::Lt
+                    | BinOp::Le
+                    | BinOp::Gt
+                    | BinOp::Ge
+                    | BinOp::And
+                    | BinOp::Or
             ) {
                 RTy::Boolean
             } else {
@@ -987,7 +1140,13 @@ fn entity_ctor(value: &Expr) -> Option<(String, CtorRecord<'_>, bool)> {
     Some((entity, record, nullable))
 }
 
-fn validate_type(ty: &TypeExpr, entity_names: &[String], aux_types: &[String], file: &str, diags: &mut Vec<Diag>) {
+fn validate_type(
+    ty: &TypeExpr,
+    entity_names: &[String],
+    aux_types: &[String],
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
     match ty {
         TypeExpr::List { elem, .. } => validate_type(elem, entity_names, aux_types, file, diags),
         TypeExpr::Generic { base, args, .. } => {
