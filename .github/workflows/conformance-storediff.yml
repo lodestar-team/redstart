@@ -1,0 +1,99 @@
+name: conformance-storediff
+
+# The kill/pivot gate: deploy our generated subgraph AND an independently
+# hand-written reference to a real graph-node, sync both to a fixed block, and
+# field-level store-diff them. Our lowered AssemblyScript must produce a store
+# IDENTICAL to idiomatic hand-written AssemblyScript.
+#
+# This is deliberately NOT on the push path: it needs an archive RPC and real
+# indexing time. Run it on demand (or on a schedule) once RPC_URL is configured.
+#
+# Required: an RPC_URL repository secret (archive node for the chosen network).
+# Pick a PROJECT with a SHORT [startBlock, BLOCK] window — indexing a busy
+# contract like USDC from genesis is impractical.
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Redstart project to diff"
+        type: string
+        default: examples/erc20
+      block:
+        description: "Block to pin the store-diff at"
+        type: string
+        required: true
+      network:
+        description: "Network name in the manifest"
+        type: string
+        default: mainnet
+  # Weekly heartbeat — skips cleanly if RPC_URL isn't set.
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  store-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RPC_URL: ${{ secrets.RPC_URL }}
+      NETWORK: ${{ inputs.network || 'mainnet' }}
+      PROJECT: ${{ inputs.project || 'examples/erc20' }}
+      BLOCK: ${{ inputs.block }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check RPC configuration
+        id: cfg
+        run: |
+          if [ -n "$RPC_URL" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RPC_URL secret not set — skipping the store-diff gate."
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.cfg.outputs.enabled == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.cfg.outputs.enabled == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.enabled == 'true'
+        with:
+          node-version: 20
+
+      - name: Bring up graph-node + IPFS + Postgres
+        if: steps.cfg.outputs.enabled == 'true'
+        run: docker compose -f conformance/docker-compose.yml up -d
+
+      - name: Wait for the stack
+        if: steps.cfg.outputs.enabled == 'true'
+        run: |
+          echo "waiting for IPFS (5001) and graph-node admin (8020)…"
+          for _ in $(seq 1 60); do
+            # IPFS answers a normal request; for graph-node admin (JSON-RPC) we
+            # only care that the port accepts a connection, so no -f there.
+            if curl -fsS -X POST http://localhost:5001/api/v0/version >/dev/null 2>&1 \
+               && curl -sS http://localhost:8020 -o /dev/null >/dev/null 2>&1; then
+              echo "stack is up"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::stack did not come up in time"; exit 1
+
+      - name: Store-diff (BLOCK required)
+        if: steps.cfg.outputs.enabled == 'true'
+        run: |
+          [ -n "$BLOCK" ] || { echo "::error::set the 'block' input"; exit 1; }
+          ./conformance/run.sh all
+
+      - name: graph-node logs on failure
+        if: failure() && steps.cfg.outputs.enabled == 'true'
+        run: docker compose -f conformance/docker-compose.yml logs --tail 200 graph-node
+
+      - name: Tear down
+        if: always() && steps.cfg.outputs.enabled == 'true'
+        run: docker compose -f conformance/docker-compose.yml down -v
