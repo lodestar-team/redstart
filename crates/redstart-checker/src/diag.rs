@@ -29,6 +29,7 @@ pub struct Diag {
     pub line: usize,
     /// 1-indexed column of the labelled span.
     pub col: usize,
+    severity: miette::Severity,
 }
 
 impl Diag {
@@ -52,6 +53,7 @@ impl Diag {
             len: span.len(),
             line,
             col,
+            severity: miette::Severity::Error,
         }
     }
 
@@ -60,6 +62,30 @@ impl Diag {
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
         self
+    }
+
+    /// Mark this diagnostic as a warning (a lint) rather than a hard error.
+    /// Warnings are reported but do not fail the build.
+    #[must_use]
+    pub fn warning(mut self) -> Self {
+        self.severity = miette::Severity::Warning;
+        self
+    }
+
+    /// Whether this diagnostic is an error (vs a warning).
+    #[must_use]
+    pub fn is_error(&self) -> bool {
+        matches!(self.severity, miette::Severity::Error)
+    }
+
+    /// The severity as a lowercase string (`"error"` / `"warning"`).
+    #[must_use]
+    pub fn severity_str(&self) -> &'static str {
+        match self.severity {
+            miette::Severity::Error => "error",
+            miette::Severity::Warning => "warning",
+            miette::Severity::Advice => "advice",
+        }
     }
 
     /// The diagnostic code (e.g. `redstart::check::E051`).
@@ -99,6 +125,10 @@ impl Diag {
 impl Diagnostic for Diag {
     fn code<'a>(&'a self) -> Option<Box<dyn fmt::Display + 'a>> {
         Some(Box::new(self.code.clone()))
+    }
+
+    fn severity(&self) -> Option<miette::Severity> {
+        Some(self.severity)
     }
 
     fn source_code(&self) -> Option<&dyn SourceCode> {

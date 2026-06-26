@@ -204,6 +204,20 @@ static EXPLANATIONS: &[Explanation] = &[
         fix: "Use `event.block.timestamp` for time; derive any 'random' value from on-chain data. A subgraph must index identically everywhere.",
     },
     Explanation {
+        code: "W010",
+        title: "call handler on a network without tracing",
+        summary: "A `handler call …` targets a network whose nodes don't expose Parity-style call tracing (Arbitrum, Optimism, Base, Polygon, BNB, …).",
+        prevents: "A call handler that silently never fires on that network — you'd index nothing and not know why.",
+        fix: "Prefer an event handler. Call/`call`-trace handlers are reliable mainly on Ethereum mainnet.",
+    },
+    Explanation {
+        code: "W011",
+        title: "unfiltered block handler",
+        summary: "A `handler block Src` with no `every N` or `once` runs on every block of the entire chain.",
+        prevents: "A pathologically slow sync — the handler fires for every block from `startBlock` onward.",
+        fix: "Add `every N` to poll every N blocks, or `once` to run a single time.",
+    },
+    Explanation {
         code: "E071",
         title: "contract has no such function",
         summary: "Code called a function the bound contract's ABI doesn't declare.",
@@ -224,7 +238,7 @@ mod tests {
         assert!(explain("E999").is_none());
         // Every entry is well-formed.
         for e in all() {
-            assert!(e.code.starts_with('E'));
+            assert!(e.code.starts_with('E') || e.code.starts_with('W'));
             assert!(!e.title.is_empty() && !e.summary.is_empty() && !e.fix.is_empty());
         }
     }

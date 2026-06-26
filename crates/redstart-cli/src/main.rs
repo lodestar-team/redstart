@@ -150,20 +150,36 @@ fn cmd_check(path: &Path, json: bool) -> Result<(), String> {
         return cmd_check_json(path);
     }
     let tree = load(path)?;
-    check(&tree)?;
+    let diags = redstart_checker::check_diags(&tree);
+    let errors = diags.iter().filter(|d| d.is_error()).count();
+    let warnings = diags.len() - errors;
+
+    // Print every diagnostic (errors and warnings), errors-first.
+    for d in diags.iter().filter(|d| d.is_error()) {
+        eprint!("{}", d.render());
+    }
+    for d in diags.iter().filter(|d| !d.is_error()) {
+        eprint!("{}", d.render());
+    }
+
+    if errors > 0 {
+        // Already printed above; fail without a duplicate message.
+        return Err(String::new());
+    }
+
     let modules = tree.modules.len();
-    let entities: usize = tree
-        .modules
-        .values()
-        .map(|m| m.program.entities.len())
-        .sum();
     let handlers: usize = tree
         .modules
         .values()
         .map(|m| m.program.handlers.len())
         .sum();
+    let warn_note = if warnings > 0 {
+        format!(", {warnings} warning(s)")
+    } else {
+        String::new()
+    };
     println!(
-        "✓ {} — {modules} module(s), {entities} entit(ies), {handlers} handler(s), no errors",
+        "✓ {} — {modules} module(s), {handlers} handler(s), no errors{warn_note}",
         tree.name
     );
     Ok(())
@@ -198,7 +214,7 @@ fn cmd_check_json(path: &Path) -> Result<(), String> {
         .iter()
         .map(|d| {
             serde_json::json!({
-                "severity": "error",
+                "severity": d.severity_str(),
                 "code": d.code_short(),
                 "message": d.message,
                 "label": d.label_str(),
@@ -211,7 +227,8 @@ fn cmd_check_json(path: &Path) -> Result<(), String> {
             })
         })
         .collect();
-    let ok = diags.is_empty();
+    // `ok` (and the exit code) reflect errors only — warnings don't fail a build.
+    let ok = found.iter().all(|d| !d.is_error());
     print_json_doc(ok, &diags);
     if ok {
         Ok(())

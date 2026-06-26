@@ -66,10 +66,16 @@ pub fn check_with_abis(
     abi_texts: &HashMap<String, String>,
 ) -> Result<Checked, Vec<String>> {
     let (checked, diags) = analyze(tree, abi_texts);
-    if diags.is_empty() {
+    // Warnings (lints) are reported elsewhere but never block the build.
+    let errors: Vec<String> = diags
+        .iter()
+        .filter(|d| d.is_error())
+        .map(Diag::render)
+        .collect();
+    if errors.is_empty() {
         Ok(checked)
     } else {
-        Err(diags.iter().map(Diag::render).collect())
+        Err(errors)
     }
 }
 
@@ -142,12 +148,16 @@ fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, 
 
     // Source / template tables.
     let mut source_abi: HashMap<String, String> = HashMap::new();
+    let mut source_network: HashMap<String, String> = HashMap::new();
     let mut data_source_names: HashMap<String, ()> = HashMap::new();
     for m in &modules {
         for s in &m.program.sources {
             data_source_names.insert(s.name.name.clone(), ());
             if let Some(a) = path_setting(&s.settings, "abi") {
                 source_abi.insert(s.name.name.clone(), a);
+            }
+            if let Some(n) = string_setting(&s.settings, "network") {
+                source_network.insert(s.name.name.clone(), n);
             }
         }
         for t in &m.program.templates {
@@ -232,6 +242,7 @@ fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, 
                 &entities,
                 &entity_meta,
                 &source_abi,
+                &source_network,
                 &data_source_names,
                 &fn_returns,
                 &mut abis,
@@ -491,6 +502,7 @@ fn check_handler(
     entities: &HashMap<String, EntityInfo>,
     meta: &HashMap<String, EntityMeta>,
     source_abi: &HashMap<String, String>,
+    source_network: &HashMap<String, String>,
     data_sources: &HashMap<String, ()>,
     fn_returns: &HashMap<String, RTy>,
     abis: &mut AbiIndex,
@@ -515,7 +527,7 @@ fn check_handler(
     let abi_name = source_abi.get(&h.source.name).cloned().unwrap_or_default();
 
     // Resolve the handler's trigger members and the type of its parameter.
-    let (param_ty, params, outputs) = match h.kind {
+    let (param_ty, params, outputs) = match &h.kind {
         HandlerKind::Event => {
             if abis.readable(&abi_name) && abis.event_params(&abi_name, &h.event.name).is_none() {
                 diags.push(
@@ -551,13 +563,47 @@ fn check_handler(
                     ),
                 );
             }
+            // Call handlers need Parity-style tracing, which several major
+            // networks don't support — there the handler silently never fires.
+            if let Some(net) = source_network.get(&h.source.name) {
+                if network_lacks_call_tracing(net) {
+                    diags.push(
+                        Diag::new(
+                            file,
+                            &h.event.span,
+                            "W010",
+                            format!("call handler on `{net}`, which has no call tracing"),
+                            "this handler will never fire here",
+                        )
+                        .warning()
+                        .with_help("call handlers need Parity tracing (mainly Ethereum mainnet) — prefer an event handler"),
+                    );
+                }
+            }
             (
                 RTy::Call,
                 rty_map(abis.function_inputs(&abi_name, &h.event.name)),
                 rty_map(abis.function_output_params(&abi_name, &h.event.name)),
             )
         }
-        HandlerKind::Block(_) => (RTy::Block, HashMap::new(), HashMap::new()),
+        HandlerKind::Block(filter) => {
+            // An unfiltered block handler runs on *every block of the whole
+            // chain* — documented as "very, very slow".
+            if matches!(filter, redstart_parser::ast::BlockFilter::Every) {
+                diags.push(
+                    Diag::new(
+                        file,
+                        &h.source.span,
+                        "W011",
+                        "unfiltered block handler runs on every block of the entire chain",
+                        "very slow",
+                    )
+                    .warning()
+                    .with_help("add `every N` to poll, or `once` to run a single time"),
+                );
+            }
+            (RTy::Block, HashMap::new(), HashMap::new())
+        }
         // A file/IPFS handler receives the file contents as `Bytes`.
         HandlerKind::File => (RTy::Bytes, HashMap::new(), HashMap::new()),
     };
@@ -1020,6 +1066,27 @@ fn nondeterministic_call(ns: &str, method: &str) -> Option<&'static str> {
     }
 }
 
+/// Networks known not to support the Parity tracing that call/block-`call`
+/// handlers require — there a call handler silently never fires. Conservative:
+/// only networks documented as lacking it, to avoid false positives.
+fn network_lacks_call_tracing(network: &str) -> bool {
+    let n = network.to_ascii_lowercase();
+    matches!(
+        n.as_str(),
+        "arbitrum-one"
+            | "arbitrum"
+            | "arbitrum-nova"
+            | "optimism"
+            | "base"
+            | "matic"
+            | "polygon"
+            | "polygon-zkevm"
+            | "bsc"
+            | "bnb"
+            | "chapel"
+    )
+}
+
 fn is_arithmetic(op: redstart_parser::ast::BinOp) -> bool {
     use redstart_parser::ast::BinOp;
     matches!(
@@ -1250,6 +1317,16 @@ fn get_setting<'a>(settings: &'a [Setting], key: &str) -> Option<&'a Setting> {
 
 fn path_setting(settings: &[Setting], key: &str) -> Option<String> {
     get_setting(settings, key).and_then(|s| path_name(&s.value))
+}
+
+/// Read a setting whose value may be a string literal (e.g. `network:
+/// "arbitrum-one"`) or a bare identifier (e.g. `network: mainnet`).
+fn string_setting(settings: &[Setting], key: &str) -> Option<String> {
+    let s = get_setting(settings, key)?;
+    match &s.value {
+        Expr::Str { value, .. } => Some(value.clone()),
+        _ => path_name(&s.value),
+    }
 }
 
 fn path_name(expr: &Expr) -> Option<String> {

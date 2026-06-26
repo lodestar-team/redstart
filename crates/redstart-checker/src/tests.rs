@@ -255,3 +255,60 @@ fn rejects_math_random() {
     let body = "  let r = Math.random()\n  let a = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })";
     assert_err_contains(run(&with_handler(body)), "non-deterministic");
 }
+
+/// Build a one-file project and return ALL diagnostics (including warnings).
+fn diags_of(src: &str) -> Vec<crate::Diag> {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("src/abis")).unwrap();
+    fs::write(
+        dir.path().join("redstart.toml"),
+        "[project]\nname = \"t\"\nentry = \"src/main.red\"",
+    )
+    .unwrap();
+    fs::write(dir.path().join("src/abis/ERC20.json"), ABI).unwrap();
+    fs::write(dir.path().join("src/main.red"), src).unwrap();
+    let tree = redstart_loader::load(dir.path()).unwrap();
+    crate::check_diags(&tree)
+}
+
+fn assert_warns(src: &str, code: &str) {
+    let diags = diags_of(src);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code_short() == code && !d.is_error()),
+        "expected warning {code}; got: {:?}",
+        diags.iter().map(|d| d.code_short()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn warns_on_unfiltered_block_handler() {
+    let src = format!("{PREAMBLE}\nhandler block Token(block) {{\n  let a = Account.loadOrCreate(0x01, {{ balance: BigInt.zero }})\n}}\n");
+    assert_warns(&src, "W011");
+}
+
+#[test]
+fn warns_on_call_handler_on_non_tracing_network() {
+    let src = r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Account { id: Id<Bytes> balance: BigInt }
+source Token {
+  abi: ERC20
+  network: "arbitrum-one"
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+handler call Token.balanceOf(call) {
+  let a = Account.loadOrCreate(0x01, { balance: BigInt.zero })
+}
+"#;
+    assert_warns(src, "W010");
+}
+
+#[test]
+fn warnings_do_not_fail_the_build() {
+    let src = format!("{PREAMBLE}\nhandler block Token(block) {{\n  let a = Account.loadOrCreate(0x01, {{ balance: BigInt.zero }})\n}}\n");
+    // `check` is errors-only — a warning must not turn into a failure.
+    assert!(run(&src).is_ok());
+}

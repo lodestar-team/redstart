@@ -232,13 +232,14 @@ load/save of the same id, hoist loop-invariant loads, and substitute `loadInBloc
 differ, so it's unsafe otherwise).
 *Refs:* [graph-ts API](https://thegraph.com/docs/en/subgraphs/developing/creating/graph-ts/api/)
 
-### 4.7 🔜 [WARN] Handler-shape lints
-Unfiltered `blockHandlers` (runs every block, whole chain — "very, very slow");
-`callHandlers` / `kind: call` (need Parity tracing — *unsupported* on
-BNB/Arbitrum/Polygon/Optimism, so the handler silently never fires there); mismatched
-`startBlock`s across call-handler sources (graph-node bug → unrestricted
-`trace_filter`, 4 h build → 24 h index). Flag all three; **error** on call handlers
-targeting a non-tracing network.
+### 4.7 ✅→🔜 [WARN] Handler-shape lints
+**Done (v0.5.0):** warning **W011** on an unfiltered block handler (runs every
+block of the whole chain), and **W010** on a `handler call` whose source network
+has no Parity tracing (Arbitrum/Optimism/Base/Polygon/BNB — the handler silently
+never fires there). This also introduced **warning-severity diagnostics** (a
+`.warning()` builder; warnings report but don't fail the build), unlocking the
+rest of the §4 `[WARN]` lints. **Next:** mismatched `startBlock`s across
+call-handler sources (graph-node `trace_filter` blowup, 4 h build → 24 h index).
 *Refs:* [manifest](https://github.com/graphprotocol/graph-node/blob/master/docs/subgraph-manifest.md) ·
 [#2007](https://github.com/graphprotocol/graph-node/issues/2007)
 

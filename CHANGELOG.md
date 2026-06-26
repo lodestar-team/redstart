@@ -6,7 +6,20 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-06-26
+## [0.5.0] - 2026-06-26
+
+Handler-shape lints + warning-severity diagnostics — roadmap §4.7.
+
+### Added
+- **Warning-severity diagnostics.** Diagnostics can now be warnings (lints):
+  they're reported but don't fail the build. `check --json` carries the real
+  `severity`; `redstart check` prints warnings and still exits 0.
+- **W010** — a `handler call` on a network without Parity call tracing
+  (Arbitrum, Optimism, Base, Polygon, BNB, …), where the handler silently never
+  fires. Prefer an event handler.
+- **W011** — an unfiltered block handler (runs on every block of the whole
+  chain). Add `every N` or `once`.
+- `redstart explain` covers both new codes.
 
 Determinism by construction — roadmap §3.7.
 
