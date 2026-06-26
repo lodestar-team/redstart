@@ -1,0 +1,55 @@
+name: publish-vscode
+
+# Packages the VS Code extension and publishes it to the Visual Studio
+# Marketplace and Open VSX on a tagged release. Each publish step is gated on its
+# token and skips cleanly when absent:
+#   VSCE_PAT  - Visual Studio Marketplace personal access token
+#   OVSX_PAT  - Open VSX token
+# The .vsix is always built and uploaded as a workflow artifact, so you can
+# publish by hand even before the tokens are set.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Job-level env so the gating `if:` on each publish step can read the tokens
+    # (a step's own env is not in scope for its own if-condition).
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Package .vsix
+        run: npx --yes @vscode/vsce package --out redstart.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redstart-vsix
+          path: editors/vscode/redstart.vsix
+
+      - name: Publish to Visual Studio Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        run: npx --yes @vscode/vsce publish --packagePath redstart.vsix
+
+      - name: Publish to Open VSX
+        if: ${{ env.OVSX_PAT != '' }}
+        run: npx --yes ovsx publish redstart.vsix -p "$OVSX_PAT"

@@ -8,3 +8,7 @@
 
 # mdBook render output
 /docs/book/book/
+
+# Node
+node_modules/
+*.vsix

@@ -1,0 +1,66 @@
+name: publish-crates
+
+# Publishes the workspace crates to crates.io on a tagged release, in dependency
+# order. Requires a CARGO_REGISTRY_TOKEN secret (crates.io API token). Skips
+# cleanly until that secret is set, so tagging never fails on this account.
+#
+# Publishing is irreversible (a version can be yanked but not replaced), so this
+# only runs on tags — never on push.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Package + verify only, do not upload"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check token
+        id: cfg
+        env:
+          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CARGO_REGISTRY_TOKEN not set — running a dry-run only."
+          fi
+
+      # cargo publish waits for each crate to land in the index before returning,
+      # so publishing in dependency order in one job is safe.
+      - name: Publish (or dry-run) in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          FORCE_DRY: ${{ steps.cfg.outputs.enabled == 'false' || inputs.dry_run == true }}
+        run: |
+          set -euo pipefail
+          CRATES="redstart-parser redstart-loader redstart-checker redstart-codegen redstart-test redstart-lsp redstart-cli"
+          for crate in $CRATES; do
+            if [ "$FORCE_DRY" = "true" ]; then
+              # --no-verify: a real verify build would need the upstream crates
+              # already on crates.io, which they aren't in a dry-run. Packaging
+              # alone still catches missing metadata / files.
+              echo "::group::dry-run $crate"
+              cargo publish -p "$crate" --dry-run --no-verify
+              echo "::endgroup::"
+            else
+              echo "::group::publish $crate"
+              cargo publish -p "$crate"
+              echo "::endgroup::"
+            fi
+          done
