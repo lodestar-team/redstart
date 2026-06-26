@@ -1,0 +1,16 @@
+[book]
+title = "The Redstart Book"
+description = "A multi-file language for authoring The Graph subgraphs."
+authors = ["The Lodestar Team"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/lodestar-team/redstart"
+edit-url-template = "https://github.com/lodestar-team/redstart/edit/main/docs/book/{path}"
+
+[output.html.fold]
+enable = true
+level = 1

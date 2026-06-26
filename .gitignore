@@ -5,3 +5,6 @@
 # Redstart build output directory
 **/build/
 *.wasm
+
+# mdBook render output
+/docs/book/book/
