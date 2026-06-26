@@ -75,6 +75,7 @@ good in the lineage of Matchstick, not a venture bet.
 | `schema.graphql` + `subgraph.yaml` generation from the unified AST | `redstart-codegen` | ✅ working |
 | AssemblyScript mapping lowering — `loadOrCreate`, `BigInt`/`BigDecimal` operators, auto-save dirty-tracking, contract calls (`Result` → `try_*`), `match` | `redstart-codegen` | ✅ vertical slice (ERC-20) |
 | Control flow — `if`/`else if`/`else`, `while`, `for` (numeric ranges + list iteration), array literals & indexing, lowered to native AssemblyScript | `redstart-codegen` | ✅ working |
+| Helper functions — free `fn` declarations lowered to AssemblyScript, cross-module, with return-typed calls and `return`-flushed auto-saves | `redstart-codegen` | ✅ working |
 | Handler kinds — event (`handler on Src.Event`), call (`handler call Src.fn`), and block (`handler block Src [every N\|once]`) → `eventHandlers`/`callHandlers`/`blockHandlers` | `redstart-codegen` | ✅ working |
 | Dynamic data sources — `template` blocks + `<Template>.create(addr)` / `.createWithContext(addr, ctx)` and `DataSourceContext`, the factory pattern | `redstart-codegen` | ✅ working |
 | File data sources — `template T { kind: file }` + `handler file T(content)` → `kind: file/ipfs` manifest, the off-chain-metadata (IPFS) pattern | `redstart-codegen` | ✅ working |
@@ -111,6 +112,11 @@ reference and store-diffs them at a fixed block.
 ```sh
 cargo run -p redstart-cli -- new my-subgraph
 cargo run -p redstart-cli -- build my-subgraph
+
+# a real-world subgraph: a faithful Redstart port of PaulieB14's Graph Horizon
+# indexer — 3 Arbitrum contracts, helpers, timeseries/aggregations. Ejects to
+# WASM unmodified; 7 native handler tests. See examples/horizon-indexer/README.md.
+cargo run -p redstart-cli -- test examples/horizon-indexer
 
 # or against the worked example (split across two modules):
 cargo run -p redstart-cli -- check examples/erc20
