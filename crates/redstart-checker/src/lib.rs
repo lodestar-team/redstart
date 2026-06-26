@@ -734,6 +734,7 @@ fn check_block(
             Stmt::While { cond, body, .. } => {
                 check_expr(cond, ctx, locals, file, diags);
                 let mut b = locals.clone();
+                warn_calls_in_loop(&body.stmts, ctx, &b, file, diags);
                 check_block(&body.stmts, ctx, &mut b, file, diags);
             }
             Stmt::For {
@@ -742,6 +743,7 @@ fn check_block(
                 let elem = check_for_iter(iter, ctx, locals, file, diags);
                 let mut b = locals.clone();
                 b.insert(var.name.clone(), elem);
+                warn_calls_in_loop(&body.stmts, ctx, &b, file, diags);
                 check_block(&body.stmts, ctx, &mut b, file, diags);
             }
             Stmt::Expr(e) => {
@@ -755,6 +757,104 @@ fn check_block(
                 }
             }
         }
+    }
+}
+
+/// Warn (W020) on a contract `eth_call` inside a loop body — the documented
+/// "stuck at 3%" sync killer (each call is a 100 ms+ blocking RPC, run serially
+/// while the handler is paused). Skips nested loops, which warn via their own arm.
+fn warn_calls_in_loop(
+    stmts: &[Stmt],
+    ctx: &BodyCtx,
+    locals: &HashMap<String, RTy>,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { value, .. }
+            | Stmt::Return {
+                value: Some(value), ..
+            } => {
+                warn_calls_in_expr(value, ctx, locals, file, diags);
+            }
+            Stmt::Assign { target, value, .. } => {
+                warn_calls_in_expr(target, ctx, locals, file, diags);
+                warn_calls_in_expr(value, ctx, locals, file, diags);
+            }
+            Stmt::Expr(e) => warn_calls_in_expr(e, ctx, locals, file, diags),
+            Stmt::If {
+                cond,
+                then_block,
+                else_ifs,
+                else_block,
+                ..
+            } => {
+                warn_calls_in_expr(cond, ctx, locals, file, diags);
+                warn_calls_in_loop(&then_block.stmts, ctx, locals, file, diags);
+                for (c, block) in else_ifs {
+                    warn_calls_in_expr(c, ctx, locals, file, diags);
+                    warn_calls_in_loop(&block.stmts, ctx, locals, file, diags);
+                }
+                if let Some(block) = else_block {
+                    warn_calls_in_loop(&block.stmts, ctx, locals, file, diags);
+                }
+            }
+            // Nested loops handle their own bodies; don't double-report.
+            Stmt::While { .. } | Stmt::For { .. } | Stmt::Return { .. } => {}
+        }
+    }
+}
+
+/// Recurse through an expression, flagging any contract call (a call inferring
+/// to `Result`) with W020.
+fn warn_calls_in_expr(
+    expr: &Expr,
+    ctx: &BodyCtx,
+    locals: &HashMap<String, RTy>,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
+    match expr {
+        Expr::Call { callee, args, .. } => {
+            if matches!(infer(expr, ctx, locals), RTy::Result(_)) {
+                diags.push(
+                    Diag::new(
+                        file,
+                        expr.span(),
+                        "W020",
+                        "contract call (`eth_call`) inside a loop",
+                        "this blocks the handler on an RPC every iteration",
+                    )
+                    .warning()
+                    .with_help("hoist the call out of the loop, or cache it — declared/looped eth_calls are a top sync killer"),
+                );
+            }
+            warn_calls_in_expr(callee, ctx, locals, file, diags);
+            for a in args {
+                warn_calls_in_expr(a, ctx, locals, file, diags);
+            }
+        }
+        Expr::Field { base, .. } => warn_calls_in_expr(base, ctx, locals, file, diags),
+        Expr::Binary { lhs, rhs, .. } => {
+            warn_calls_in_expr(lhs, ctx, locals, file, diags);
+            warn_calls_in_expr(rhs, ctx, locals, file, diags);
+        }
+        Expr::Unary { expr, .. } => warn_calls_in_expr(expr, ctx, locals, file, diags),
+        Expr::Record { fields, .. } => {
+            for (_, v) in fields {
+                warn_calls_in_expr(v, ctx, locals, file, diags);
+            }
+        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            warn_calls_in_expr(scrutinee, ctx, locals, file, diags);
+            for arm in arms {
+                warn_calls_in_loop(&arm.body.stmts, ctx, locals, file, diags);
+            }
+        }
+        _ => {}
     }
 }
 

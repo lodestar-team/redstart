@@ -211,6 +211,13 @@ static EXPLANATIONS: &[Explanation] = &[
         fix: "Prefer an event handler. Call/`call`-trace handlers are reliable mainly on Ethereum mainnet.",
     },
     Explanation {
+        code: "W020",
+        title: "contract call inside a loop",
+        summary: "An `eth_call` (a `Contract.bind(...).fn(...)`) appears inside a `for`/`while` loop.",
+        prevents: "The classic 'stuck at 3%' sync: each call is a 100 ms+ blocking RPC, run serially while the handler is paused — N iterations means N round-trips.",
+        fix: "Hoist the call out of the loop if its result is loop-invariant, or cache it. Reading the same value once and reusing it is dramatically faster.",
+    },
+    Explanation {
         code: "W011",
         title: "unfiltered block handler",
         summary: "A `handler block Src` with no `every N` or `once` runs on every block of the entire chain.",

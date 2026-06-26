@@ -6,6 +6,17 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-27
+
+Performance lint: the "stuck at 3%" eth_call — roadmap §4.2.
+
+### Added
+- **W020** — a contract call (`eth_call`) inside a `for`/`while` loop is now
+  flagged. Each call is a 100 ms+ blocking RPC run serially while the handler is
+  paused, so N iterations means N round-trips — the classic "stuck at 3%" sync.
+  Calls outside loops are unaffected (no false positives). `redstart explain
+  W020` documents it.
+
 ## [0.5.0] - 2026-06-26
 
 Handler-shape lints + warning-severity diagnostics — roadmap §4.7.

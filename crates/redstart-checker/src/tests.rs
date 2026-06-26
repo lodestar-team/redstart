@@ -312,3 +312,19 @@ fn warnings_do_not_fail_the_build() {
     // `check` is errors-only — a warning must not turn into a failure.
     assert!(run(&src).is_ok());
 }
+
+#[test]
+fn warns_on_eth_call_in_loop() {
+    let body = "  let xs = [event.params.from, event.params.to]\n  for h in xs {\n    match ERC20.bind(event.address).balanceOf(h) { Ok(b) => { let a = Account.loadOrCreate(h, { balance: b }) } Err(e) => {} }\n  }";
+    assert_warns(&with_handler(body), "W020");
+}
+
+#[test]
+fn no_warning_for_eth_call_outside_loop() {
+    let body = "  match ERC20.bind(event.address).balanceOf(event.params.to) { Ok(b) => { let a = Account.loadOrCreate(event.params.to, { balance: b }) } Err(e) => {} }";
+    let diags = diags_of(&with_handler(body));
+    assert!(
+        !diags.iter().any(|d| d.code_short() == "W020"),
+        "unexpected W020 outside a loop"
+    );
+}

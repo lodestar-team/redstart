@@ -188,13 +188,13 @@ contract's creation tx. Fetch it and default `startBlock`; **error loudly on `0`
 
 ### 4.2 🔜 [AUTO] Declare `eth_calls` for parallel pre-fetch
 `eth_calls` are the **#1 sync killer** (100 ms–several seconds *each*, run serially
-while the handler is paused). When a call's receiver+args are pure functions of
-`event.address`/`event.params`, emit a manifest `calls:` block (specVersion ≥ 1.2.0)
-so graph-node runs them **in parallel before handlers** and caches them. Vendor
-(Goldsky) figure: 5–10×; official docs say "greatly speed up". Also **[AUTO]** rewrite
-a call whose return is already in the triggering event → read the event param; and
-**[WARN]** on metadata calls (`name`/`symbol`/`decimals`) not behind a `load()==null`
-cache, and any `bind`/`try_*` inside a loop ("stuck at 3%").
+while the handler is paused). **Done (v0.6.0):** **[WARN] W020** on any contract
+call inside a `for`/`while` loop (the "stuck at 3%" pattern). **Still to do:** when
+a call's receiver+args are pure functions of `event.address`/`event.params`, emit a
+manifest `calls:` block (specVersion ≥ 1.2.0) so graph-node runs them **in parallel
+before handlers** and caches them (Goldsky figure: 5–10×); **[AUTO]** rewrite a call
+whose return is already in the triggering event → read the event param; **[WARN]** on
+metadata calls (`name`/`symbol`/`decimals`) not behind a `load()==null` cache.
 *Refs:* [avoid eth_calls](https://thegraph.com/docs/en/subgraphs/best-practices/avoid-eth-calls/) ·
 [reduce eth_calls](https://thegraph.com/blog/improve-subgraph-performance-reduce-eth-calls/) ·
 [declared calls (Goldsky)](https://docs.goldsky.com/subgraphs/guides/declared-eth-calls)
