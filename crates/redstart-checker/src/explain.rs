@@ -197,6 +197,13 @@ static EXPLANATIONS: &[Explanation] = &[
         fix: "Handle every variant, or add a `_ => { … }` wildcard arm.",
     },
     Explanation {
+        code: "E080",
+        title: "non-deterministic call",
+        summary: "Code called a wall-clock or randomness host function (`Date.now`, `Date.UTC`, `Date.parse`, `Math.random`).",
+        prevents: "Non-determinism that diverges Proof-of-Indexing across indexers — a slashing risk; graph-node blocks some of these at runtime.",
+        fix: "Use `event.block.timestamp` for time; derive any 'random' value from on-chain data. A subgraph must index identically everywhere.",
+    },
+    Explanation {
         code: "E071",
         title: "contract has no such function",
         summary: "Code called a function the bound contract's ABI doesn't declare.",

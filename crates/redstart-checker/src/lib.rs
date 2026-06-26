@@ -12,7 +12,9 @@
 //! - you cannot read a contract call's `.value` without `match`ing it first
 //!   (contract calls can revert);
 //! - you cannot do arithmetic on an `Option` without unwrapping it (the
-//!   nullable-arithmetic miscompile).
+//!   nullable-arithmetic miscompile);
+//! - you cannot call non-deterministic host functions (`Date.now`,
+//!   `Math.random`, …) — they diverge Proof-of-Indexing and get indexers slashed.
 //!
 //! On success it returns a [`Checked`] symbol table that codegen consumes, so
 //! the resolved types are computed once and shared.
@@ -955,8 +957,30 @@ fn check_expr(
             check_expr(rhs, ctx, locals, file, diags);
         }
         Expr::Call { callee, args, .. } => {
-            // Calling a function that the contract's ABI doesn't have.
             if let Expr::Field { base, field, .. } = callee.as_ref() {
+                // Non-determinism breaks Proof-of-Indexing across indexers (and
+                // gets them slashed). Forbid the known wall-clock / RNG host calls
+                // at compile time — graph-node only blocks some of these at runtime.
+                if let Expr::Path { segments, .. } = base.as_ref() {
+                    if segments.len() == 1 {
+                        if let Some(help) = nondeterministic_call(&segments[0].name, &field.name) {
+                            diags.push(
+                                Diag::new(
+                                    file,
+                                    &field.span,
+                                    "E080",
+                                    format!(
+                                        "`{}.{}` is non-deterministic and not allowed in a subgraph",
+                                        segments[0].name, field.name
+                                    ),
+                                    "non-deterministic call",
+                                )
+                                .with_help(help),
+                            );
+                        }
+                    }
+                }
+                // Calling a function that the contract's ABI doesn't have.
                 if let RTy::Contract(abi) = infer(base, ctx, locals) {
                     if ctx.abis.readable(&abi) && !ctx.abis.is_function(&abi, &field.name) {
                         diags.push(
@@ -978,6 +1002,21 @@ fn check_expr(
             }
         }
         _ => {}
+    }
+}
+
+/// Known non-deterministic host calls (`namespace.method`). Returns the fix-it
+/// help when the call is forbidden. Subgraphs must index identically on every
+/// indexer; wall-clock time and randomness break that.
+fn nondeterministic_call(ns: &str, method: &str) -> Option<&'static str> {
+    match (ns, method) {
+        ("Date", "now" | "UTC" | "parse") => {
+            Some("subgraphs must be deterministic — use `event.block.timestamp` for time")
+        }
+        ("Math", "random") => Some(
+            "there is no randomness in a deterministic subgraph — derive values from on-chain data (e.g. block hash)",
+        ),
+        _ => None,
     }
 }
 

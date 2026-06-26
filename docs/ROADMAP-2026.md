@@ -127,11 +127,12 @@ loses precision silently. Warn statically when a value could exceed the ceiling
 (e.g. raw `uint256` token amounts before scaling).
 *Refs:* [graph-ts API](https://thegraph.com/docs/en/subgraphs/developing/creating/graph-ts/api/)
 
-### 3.7 🔜 Determinism — forbid non-determinism in the grammar — **HIGH**
+### 3.7 ✅→🔜 Determinism — forbid non-determinism in the grammar — **HIGH**
 Non-determinism breaks Proof-of-Indexing across indexers and gets them slashed.
-graph-node already *blocks* `Math.random` (`unknown import: env::seed`). Redstart
-should make the whole class absent: **no `Date.now`, no float type, no RNG** in the
-surface language; force `block.timestamp`, `BigInt`/`BigDecimal`. Also: unguarded
+graph-node already *blocks* `Math.random` (`unknown import: env::seed`). **Done
+(v0.4.0):** `Date.now`/`Date.UTC`/`Date.parse`/`Math.random` calls are a compile
+error (**E080**) with a fix-it pointing at `event.block.timestamp`; the surface
+language has no float type to begin with. **Next:** unguarded
 `assert`/array-length assumptions are a real divergence vector (the 28-ids-34-values
 `TransferBatch` incident that halted one indexer while another reported 100% synced).
 *Refs:* [determinism contract](https://thegraph.com/docs/en/subgraphs/developing/creating/advanced/) ·
@@ -321,7 +322,7 @@ and `examples/factory`.
 
 **P1 — the headline differentiators (lever 1 + 2)**
 4. Division-guard + BigInt→Decimal precision (§3.4, §3.5)
-5. Determinism: forbid `Date.now`/float/RNG (§3.7)
+5. ✅ Determinism: forbid `Date.now`/`Math.random` (§3.7, E080, v0.4.0)
 6. Auto `startBlock` from deployment block (§4.1)
 7. Auto-declare `eth_calls` (§4.2)
 8. Collision-resistant typed IDs; forbid string-concat IDs (§3.8)

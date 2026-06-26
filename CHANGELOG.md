@@ -6,6 +6,17 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-26
+
+Determinism by construction — roadmap §3.7.
+
+### Added
+- **E080** — calling a non-deterministic host function (`Date.now`, `Date.UTC`,
+  `Date.parse`, `Math.random`) is now a compile error, with a fix-it pointing at
+  `event.block.timestamp`. Non-determinism diverges Proof-of-Indexing across
+  indexers (a slashing risk); graph-node only blocks some of these at runtime.
+  `redstart explain E080` documents it.
+
 ## [0.3.0] - 2026-06-26
 
 Errors that teach — the second roadmap step (§5.5).

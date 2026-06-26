@@ -243,3 +243,15 @@ fn implementing_unknown_interface_is_rejected() {
     let src = format!("{PREAMBLE}\nentity Thing implements Ghost {{ id: Id<Bytes> }}\n");
     assert_err_contains(run(&src), "unknown interface `Ghost`");
 }
+
+#[test]
+fn rejects_nondeterministic_date_now() {
+    let body = "  let t = Date.now()\n  let a = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })";
+    assert_err_contains(run(&with_handler(body)), "E080");
+}
+
+#[test]
+fn rejects_math_random() {
+    let body = "  let r = Math.random()\n  let a = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })";
+    assert_err_contains(run(&with_handler(body)), "non-deterministic");
+}
