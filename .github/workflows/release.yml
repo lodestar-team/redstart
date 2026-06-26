@@ -101,7 +101,7 @@ jobs:
           sha() {
             gh release download "${GITHUB_REF_NAME}" \
               --repo "${OWNER_REPO}" \
-              --pattern "redstart-$1.tar.gz.sha256" \
+              --pattern "redstart-$1.sha256" \
               --output - | cut -d' ' -f1
           }
           SHA_MAC_ARM="$(sha aarch64-apple-darwin)"

@@ -110,7 +110,10 @@ reference and store-diffs them at a fixed block.
 ## Install
 
 ```sh
-# Homebrew (macOS + Linux) — pre-compiled, no Rust required
+# Quick install (macOS + Linux) — downloads the pre-built binary, no Rust required
+curl -fsSL https://raw.githubusercontent.com/lodestar-team/redstart/main/scripts/install.sh | sh
+
+# Homebrew (macOS + Linux)
 brew install lodestar-team/tap/redstart
 
 # Cargo (needs a Rust toolchain)
