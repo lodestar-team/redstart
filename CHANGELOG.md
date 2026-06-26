@@ -6,6 +6,17 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-26
+
+Errors that teach — the second roadmap step (§5.5).
+
+### Added
+- `redstart explain <CODE>` — explains any diagnostic code: title, what
+  triggered it, **the bug it prevents**, and the canonical fix. Supports
+  `--json`; bare `redstart explain` lists all 24 codes.
+- A diagnostic-code registry in `redstart-checker` (`explain` module), the
+  shared source of truth for code explanations.
+
 ## [0.2.0] - 2026-06-26
 
 First step of the [2026 roadmap](docs/ROADMAP-2026.md) — agent-native diagnostics.

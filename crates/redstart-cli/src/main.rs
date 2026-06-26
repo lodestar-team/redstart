@@ -88,6 +88,16 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Explain a diagnostic code — what it means, the bug it prevents, the fix.
+    ///
+    /// `redstart explain E062`, or `redstart explain` to list every code.
+    Explain {
+        /// The diagnostic code, e.g. `E062` (omit to list all codes).
+        code: Option<String>,
+        /// Emit the explanation as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Start the language server over stdio (for editor integration).
     Lsp,
 }
@@ -116,6 +126,7 @@ fn main() -> ExitCode {
             version_label.as_deref(),
             dry_run,
         ),
+        Command::Explain { code, json } => cmd_explain(code.as_deref(), json),
         Command::Lsp => {
             redstart_lsp::run();
             Ok(())
@@ -246,6 +257,61 @@ fn strip_ansi(s: &str) -> String {
         }
     }
     out
+}
+
+/// `redstart explain [CODE]`: explain a diagnostic code, or list all of them.
+fn cmd_explain(code: Option<&str>, json: bool) -> Result<(), String> {
+    match code {
+        None => {
+            if json {
+                let arr: Vec<_> = redstart_checker::explain::all()
+                    .iter()
+                    .map(explanation_json)
+                    .collect();
+                print_pretty(&serde_json::json!({ "codes": arr }));
+            } else {
+                println!("Redstart diagnostic codes:\n");
+                for e in redstart_checker::explain::all() {
+                    println!("  \x1b[1m{}\x1b[0m  {}", e.code, e.title);
+                }
+                println!("\nRun `redstart explain <CODE>` for details on any one.");
+            }
+            Ok(())
+        }
+        Some(c) => {
+            let e = redstart_checker::explain::explain(c).ok_or_else(|| {
+                format!("unknown diagnostic code `{c}` — run `redstart explain` to list all codes")
+            })?;
+            if json {
+                print_pretty(&explanation_json(e));
+            } else {
+                println!("\x1b[1;31m{}\x1b[0m — {}\n", e.code, e.title);
+                println!("{}\n", e.summary);
+                if !e.prevents.is_empty() {
+                    println!("\x1b[1mPrevents\x1b[0m  {}\n", e.prevents);
+                }
+                println!("\x1b[1mFix\x1b[0m       {}", e.fix);
+            }
+            Ok(())
+        }
+    }
+}
+
+fn explanation_json(e: &redstart_checker::Explanation) -> serde_json::Value {
+    serde_json::json!({
+        "code": e.code,
+        "title": e.title,
+        "summary": e.summary,
+        "prevents": (!e.prevents.is_empty()).then_some(e.prevents),
+        "fix": e.fix,
+    })
+}
+
+fn print_pretty(value: &serde_json::Value) {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".into())
+    );
 }
 
 fn cmd_build(path: &Path) -> Result<(), String> {

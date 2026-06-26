@@ -280,9 +280,11 @@ subgraph (entities inferred from events, one handler per event, sensible
 `startBlock`). Turns "start a subgraph" from an afternoon into ten seconds — for
 humans *and* agents. This is probably the single biggest adoption lever in the doc.
 
-### 5.5 🔜 `redstart explain E062` / inline fix-its
-Every error code gets a docs page and a one-command explanation, with the *why*
-(the bug it prevents) and the canonical fix. Errors that teach are the product.
+### 5.5 ✅ `redstart explain E062` / inline fix-its
+`redstart explain <CODE>` explains any diagnostic code — title, what triggered
+it, **the bug it prevents**, and the canonical fix (`--json` too; bare `redstart
+explain` lists all 24 codes). Done in v0.3.0. **Next:** inline fix-its as LSP
+code actions once the auto-fixes in §3–4 land.
 
 ### 5.6 📋 LSP completeness + editor reach
 Code actions (apply the auto-fixes from §3–4 as quick-fixes), inlay hints for
@@ -313,7 +315,8 @@ and `examples/factory`.
 **P0 — proves the bet / unblocks everything**
 1. Store-diff conformance gate, green, in CI (§6) — *workflow wired
    (`conformance-storediff.yml`), awaiting an `RPC_URL` secret + Docker runner*
-2. ✅ `--json` diagnostics (§5.1) — done in v0.2.0. Error-code docs (§5.5) next.
+2. ✅ `--json` diagnostics (§5.1, v0.2.0) + ✅ `redstart explain` error-code docs
+   (§5.5, v0.3.0) — the agent loop is unblocked.
 3. `redstart new --from 0x<address>` (§5.4) — the adoption on-ramp
 
 **P1 — the headline differentiators (lever 1 + 2)**

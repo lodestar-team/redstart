@@ -21,10 +21,12 @@
 
 pub mod abi;
 mod diag;
+pub mod explain;
 pub mod ty;
 
 pub use abi::{resolve_abi_path, AbiIndex, EventParam};
 pub use diag::Diag;
+pub use explain::Explanation;
 use redstart_loader::ModuleTree;
 use redstart_parser::ast::{
     EntityDecl, Expr, FieldDecl, ForIter, HandlerDecl, HandlerKind, MatchArm, Pattern, Setting,
