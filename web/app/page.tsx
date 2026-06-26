@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Reveal } from "@/components/reveal";
 import { CodeBlock } from "@/components/code";
 import { FileTabs } from "@/components/file-tabs";
-import { Star } from "@/components/logo";
+import { Bird } from "@/components/logo";
+import { Constellation } from "@/components/constellation";
 import {
   REDSTART_ERC20,
   AS_MAPPINGS,
@@ -44,11 +45,11 @@ export default function Home() {
     <>
       {/* ---- Hero ---- */}
       <section className="relative overflow-hidden border-b border-line">
-        <div className="grid-lines pointer-events-none absolute inset-0 opacity-60" />
-        <div className="relative mx-auto max-w-6xl px-5 pb-20 pt-20 sm:pt-28">
+        <div className="relative mx-auto max-w-6xl px-5 pb-24 pt-20 sm:pt-28">
+          <Constellation className="pointer-events-none absolute right-0 top-6 hidden h-[420px] w-[420px] opacity-90 lg:block" />
           <Reveal>
             <span className="tag">
-              <Star className="h-3 w-3" />
+              <Bird className="h-3.5 w-3.5" />
               Stage 0 · public good for The Graph
             </span>
           </Reveal>
@@ -56,7 +57,7 @@ export default function Home() {
             <h1 className="display mt-6 max-w-3xl text-5xl sm:text-7xl">
               Write the subgraph once.
               <br />
-              <span className="italic text-red">Not three times.</span>
+              <span className="grad">Not three times.</span>
             </h1>
           </Reveal>
           <Reveal i={2}>
@@ -79,8 +80,8 @@ export default function Home() {
             </div>
           </Reveal>
           <Reveal i={4}>
-            <div className="mt-6 inline-flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-2.5 font-mono text-sm text-ink-soft">
-              <span className="text-faint">$</span>
+            <div className="mt-6 inline-flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-2.5 font-mono text-sm text-text/90">
+              <span className="text-red-bright">$</span>
               <span>curl -fsSL redstart-lang.com/install.sh | sh</span>
             </div>
           </Reveal>
@@ -101,7 +102,7 @@ export default function Home() {
             <Reveal i={1} className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-2 text-sm font-medium">
-                  <Star className="h-4 w-4 text-red" /> Redstart
+                  <Bird className="h-4 w-4 text-red" /> Redstart
                 </span>
                 <span className="font-mono text-xs text-faint">
                   1 file · drift impossible
@@ -133,7 +134,7 @@ export default function Home() {
             <p className="mt-8 max-w-2xl text-muted">
               Both produce the same store. Only one of them can&apos;t drift,
               can&apos;t forget a{" "}
-              <code className="font-mono text-ink-soft">.save()</code>, and
+              <code className="font-mono text-text">.save()</code>, and
               can&apos;t let a renamed event compile. The AssemblyScript on the
               right is the genuine hand-written reference from our conformance
               suite — not a strawman.
@@ -151,11 +152,16 @@ export default function Home() {
               A whole class of bugs you can&apos;t write.
             </h2>
           </Reveal>
-          <div className="mt-12 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
             {FOOTGUNS.map((f, i) => (
-              <Reveal key={f.t} i={i % 3} as="article" className="bg-surface p-7">
+              <Reveal
+                key={f.t}
+                i={i % 3}
+                as="article"
+                className="group bg-bg-2 p-7 transition-colors hover:bg-surface"
+              >
                 <div className="flex items-center gap-2 text-sm font-medium">
-                  <span className="font-mono text-red">✕</span>
+                  <span className="font-mono text-red-bright">✕</span>
                   {f.t}
                 </div>
                 <p className="mt-2.5 text-sm leading-relaxed text-muted">
@@ -176,12 +182,12 @@ export default function Home() {
               The eject path is the whole bet.
             </h2>
             <p className="mt-5 max-w-lg leading-relaxed text-muted">
-              <code className="font-mono text-ink-soft">redstart build</code>{" "}
-              emits the exact files a hand-written subgraph has — readable,
-              idiomatic AssemblyScript and GraphQL that{" "}
-              <code className="font-mono text-ink-soft">graph build</code>{" "}
-              compiles unmodified. Walk away whenever you like; you keep the
-              generated code, and it keeps working.
+              <code className="font-mono text-text">redstart build</code> emits
+              the exact files a hand-written subgraph has — readable, idiomatic
+              AssemblyScript and GraphQL that{" "}
+              <code className="font-mono text-text">graph build</code> compiles
+              unmodified. Walk away whenever you like; you keep the generated
+              code, and it keeps working.
             </p>
             <p className="mt-4 max-w-lg leading-relaxed text-muted">
               That claim is continuously checked: a field-level store-diff
@@ -191,33 +197,36 @@ export default function Home() {
           </Reveal>
           <Reveal i={1}>
             <div className="card p-7 font-mono text-sm">
-              <div className="flex items-center gap-2 text-ink">
-                <Star className="h-3.5 w-3.5 text-red" /> token.red
+              <div className="flex items-center gap-2 text-text">
+                <Bird className="h-4 w-4 text-red" /> token.red
               </div>
               <div className="my-4 ml-1.5 border-l border-line pl-5 text-faint">
                 <div className="relative">
-                  <span className="absolute -left-[1.42rem] text-red">↓</span>
+                  <span className="absolute -left-[1.42rem] text-red-bright">↓</span>
                   redstart build
                 </div>
               </div>
-              <div className="grid gap-2 text-ink-soft">
-                <div className="rounded-md border border-line bg-[#f9f9f8] px-3 py-2">
+              <div className="grid gap-2 text-text/90">
+                <div className="rounded-md border border-line bg-surface px-3 py-2">
                   schema.graphql
                 </div>
-                <div className="rounded-md border border-line bg-[#f9f9f8] px-3 py-2">
+                <div className="rounded-md border border-line bg-surface px-3 py-2">
                   subgraph.yaml
                 </div>
-                <div className="rounded-md border border-line bg-[#f9f9f8] px-3 py-2">
+                <div className="rounded-md border border-line bg-surface px-3 py-2">
                   src/mappings.ts
                 </div>
               </div>
               <div className="my-4 ml-1.5 border-l border-line pl-5 text-faint">
                 <div className="relative">
-                  <span className="absolute -left-[1.42rem] text-red">↓</span>
+                  <span className="absolute -left-[1.42rem] text-red-bright">↓</span>
                   graph codegen · graph build
                 </div>
               </div>
-              <div className="rounded-md bg-ink px-3 py-2 text-center text-white">
+              <div
+                className="rounded-md px-3 py-2 text-center font-medium text-white"
+                style={{ background: "linear-gradient(120deg, #ff3355, #ff7a45)" }}
+              >
                 compiles unmodified → WASM
               </div>
             </div>
@@ -226,12 +235,16 @@ export default function Home() {
       </section>
 
       {/* ---- Final CTA ---- */}
-      <section>
-        <div className="mx-auto max-w-6xl px-5 py-28 text-center">
+      <section className="relative overflow-hidden">
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[60vh] w-[60vh] -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ background: "radial-gradient(closest-side, rgba(255,51,85,0.18), transparent)" }}
+        />
+        <div className="relative mx-auto max-w-6xl px-5 py-28 text-center">
           <Reveal>
-            <Star className="mx-auto h-8 w-8 text-red" />
+            <Bird glow className="mx-auto h-12 w-12 text-red" />
             <h2 className="display mx-auto mt-6 max-w-2xl text-4xl sm:text-6xl">
-              See the drift disappear.
+              See the drift <span className="grad">disappear.</span>
             </h2>
             <p className="mx-auto mt-5 max-w-md text-muted">
               The playground runs the real compiler in your browser. Type

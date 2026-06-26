@@ -81,11 +81,16 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]["key"];
 
+const EDITOR_TYPE =
+  "m-0 p-5 font-mono text-[0.82rem] leading-[1.65] tracking-normal whitespace-pre";
+
 export function Playground() {
   const compileRef = useRef<CompileFn | null>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
   const [source, setSource] = useState(DEFAULT_SOURCE);
   const [result, setResult] = useState<Compiled | null>(null);
-  const [tab, setTab] = useState<TabKey>("mappings");
+  const [tab, setTab] = useState<TabKey | "diagnostics">("mappings");
   const [status, setStatus] = useState<"loading" | "ok" | "warn" | "err">("loading");
   const [statusText, setStatusText] = useState("loading engine…");
 
@@ -109,13 +114,10 @@ export function Playground() {
     }
   }, []);
 
-  // Load the WASM engine once, client-side.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        // Loaded at runtime from /public, not bundled — hence the bundler ignore
-        // hints and the suppression: there is no module here for TS to resolve.
         // @ts-expect-error runtime asset, resolved by the browser at /wasm/…
         const mod = await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ "/wasm/redstart_wasm.js");
         await mod.default();
@@ -129,69 +131,98 @@ export function Playground() {
         setResult({ ok: false, schema: "", manifest: "", mappings: "", diagnostics: [String(e)], warnings: [] });
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [runWith]);
 
-  // Debounced recompile on edit.
   useEffect(() => {
     if (!compileRef.current) return;
-    setStatus((s) => (s === "loading" ? s : s));
     const id = setTimeout(() => {
       if (compileRef.current) runWith(compileRef.current, source);
     }, 180);
     return () => clearTimeout(id);
   }, [source, runWith]);
 
+  const syncScroll = () => {
+    const ta = taRef.current, pre = preRef.current;
+    if (ta && pre) {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const ta = e.currentTarget;
+      const s = ta.selectionStart, en = ta.selectionEnd;
+      const next = source.slice(0, s) + "  " + source.slice(en);
+      setSource(next);
+      requestAnimationFrame(() => {
+        ta.selectionStart = ta.selectionEnd = s + 2;
+      });
+    }
+  };
+
   const errored = status === "err" && result ? result.diagnostics : null;
-  const activeLang = TABS.find((t) => t.key === tab)!.lang;
-  const activeCode = result ? (result as Compiled)[tab as "mappings" | "schema" | "manifest"] : "";
+  const activeLang = tab === "diagnostics" ? "ts" : TABS.find((t) => t.key === tab)!.lang;
+  const activeCode =
+    tab === "diagnostics" || !result ? "" : result[tab as "mappings" | "schema" | "manifest"];
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-2">
-      {/* Editor */}
+      {/* Editor with live highlighting overlay */}
       <div className="flex min-h-0 flex-col border-b border-line lg:border-b-0 lg:border-r">
         <PaneHead label="source.red">
           <StatusDot status={status} text={statusText} />
         </PaneHead>
-        <textarea
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          className="flex-1 resize-none bg-surface p-5 font-mono text-[0.82rem] leading-[1.65] text-ink-soft outline-none"
-        />
+        <div className="relative min-h-0 flex-1">
+          <pre
+            ref={preRef}
+            aria-hidden
+            className={`pointer-events-none absolute inset-0 overflow-hidden text-text/90 ${EDITOR_TYPE}`}
+          >
+            <code dangerouslySetInnerHTML={{ __html: highlight(source, "red") + "\n" }} />
+          </pre>
+          <textarea
+            ref={taRef}
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            onScroll={syncScroll}
+            onKeyDown={onKeyDown}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            wrap="off"
+            className={`absolute inset-0 resize-none overflow-auto border-0 bg-transparent text-transparent caret-[#ff5e76] outline-none ${EDITOR_TYPE}`}
+          />
+        </div>
       </div>
 
       {/* Output */}
       <div className="flex min-h-0 flex-col">
-        <div className="flex items-center gap-1 border-b border-line bg-[#f9f9f8] px-2 py-1.5">
+        <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
           {TABS.map((t) => (
             <TabButton key={t.key} active={tab === t.key} onClick={() => setTab(t.key)}>
               {t.label}
             </TabButton>
           ))}
-          <TabButton active={tab === ("diagnostics" as TabKey)} onClick={() => setTab("diagnostics" as TabKey)} danger={!!errored}>
+          <TabButton active={tab === "diagnostics"} onClick={() => setTab("diagnostics")} danger={!!errored}>
             diagnostics
           </TabButton>
         </div>
 
-        {tab === ("diagnostics" as TabKey) ? (
-          <pre className="flex-1 overflow-auto bg-surface p-5 font-mono text-[0.8rem] leading-[1.7]">
+        {tab === "diagnostics" ? (
+          <pre className="flex-1 overflow-auto p-5 font-mono text-[0.8rem] leading-[1.7]">
             {errored ? (
-              <span className="text-red">{errored.join("\n\n")}</span>
+              <span className="text-red-bright">{errored.join("\n\n")}</span>
             ) : result?.warnings.length ? (
-              <span className="text-[#956400]">
-                {result.warnings.map((w) => `warning: ${w}`).join("\n")}
-              </span>
+              <span className="text-ember">{result.warnings.map((w) => `warning: ${w}`).join("\n")}</span>
             ) : (
               <span className="text-muted">No diagnostics. Clean build.</span>
             )}
           </pre>
         ) : (
-          <pre className="flex-1 overflow-auto bg-surface p-5 font-mono text-[0.82rem] leading-[1.65] text-ink-soft">
+          <pre className="flex-1 overflow-auto p-5 font-mono text-[0.82rem] leading-[1.65] text-text/90">
             <code dangerouslySetInnerHTML={{ __html: highlight(activeCode || "", activeLang) }} />
           </pre>
         )}
@@ -202,7 +233,7 @@ export function Playground() {
 
 function PaneHead({ label, children }: { label: string; children?: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-line bg-[#f9f9f8] px-4 py-2 font-mono text-xs text-faint">
+    <div className="flex items-center justify-between border-b border-line px-4 py-2 font-mono text-xs text-faint">
       <span>{label}</span>
       {children}
     </div>
@@ -211,7 +242,7 @@ function PaneHead({ label, children }: { label: string; children?: React.ReactNo
 
 function StatusDot({ status, text }: { status: string; text: string }) {
   const color =
-    status === "ok" ? "bg-[#346538]" : status === "warn" ? "bg-[#956400]" : status === "err" ? "bg-red" : "bg-faint";
+    status === "ok" ? "bg-[#8fd98a]" : status === "warn" ? "bg-ember" : status === "err" ? "bg-red" : "bg-faint";
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
@@ -235,11 +266,7 @@ function TabButton({
     <button
       onClick={onClick}
       className={`rounded-md px-3 py-1 font-mono text-xs transition-colors ${
-        active
-          ? "bg-surface text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
-          : danger
-            ? "text-red hover:text-red-ink"
-            : "text-faint hover:text-muted"
+        active ? "bg-surface-2 text-text" : danger ? "text-red-bright" : "text-faint hover:text-muted"
       }`}
     >
       {children}

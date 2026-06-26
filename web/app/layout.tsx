@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
-import { Instrument_Serif } from "next/font/google";
+import { Space_Grotesk } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { Nav } from "@/components/nav";
 import { Footer } from "@/components/footer";
+import { Cosmos } from "@/components/cosmos";
 
-const serif = Instrument_Serif({
-  variable: "--font-serif",
+const display = Space_Grotesk({
+  variable: "--font-display",
   subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
+  weight: ["500", "600", "700"],
 });
 
 const SITE = "https://redstart-lang.com";
@@ -44,11 +44,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${GeistSans.variable} ${GeistMono.variable} ${serif.variable} h-full antialiased`}
+      className={`${GeistSans.variable} ${GeistMono.variable} ${display.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">
+      <body className="relative flex min-h-full flex-col bg-bg text-text">
+        <Cosmos />
         <Nav />
-        <main className="flex-1">{children}</main>
+        <main className="relative flex-1">{children}</main>
         <Footer />
       </body>
     </html>
