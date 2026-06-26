@@ -7,26 +7,26 @@ const DOCS = "https://lodestar-team.github.io/redstart/";
 export function Nav() {
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-bg/70 backdrop-blur-xl">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-5">
         <Link href="/" className="text-[1.05rem] text-text">
           <Wordmark />
         </Link>
-        <nav className="flex items-center gap-1 text-sm text-muted">
+        <nav className="-mr-2 flex items-center text-sm text-muted sm:mr-0 sm:gap-1">
           <Link
             href="/playground"
-            className="rounded-md px-3 py-1.5 transition-colors hover:bg-surface hover:text-text"
+            className="rounded-md px-2.5 py-1.5 transition-colors hover:bg-surface hover:text-text sm:px-3"
           >
             Playground
           </Link>
           <a
             href={DOCS}
-            className="rounded-md px-3 py-1.5 transition-colors hover:bg-surface hover:text-text"
+            className="rounded-md px-2.5 py-1.5 transition-colors hover:bg-surface hover:text-text sm:px-3"
           >
             Docs
           </a>
           <a
             href={REPO}
-            className="rounded-md px-3 py-1.5 transition-colors hover:bg-surface hover:text-text"
+            className="rounded-md px-2.5 py-1.5 transition-colors hover:bg-surface hover:text-text sm:px-3"
           >
             GitHub
           </a>

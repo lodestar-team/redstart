@@ -169,9 +169,9 @@ export function Playground() {
     tab === "diagnostics" || !result ? "" : result[tab as "mappings" | "schema" | "manifest"];
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-2">
+    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-2 lg:grid-cols-2 lg:grid-rows-1">
       {/* Editor with live highlighting overlay */}
-      <div className="flex min-h-0 flex-col border-b border-line lg:border-b-0 lg:border-r">
+      <div className="flex min-h-0 min-w-0 flex-col border-b border-line lg:border-b-0 lg:border-r">
         <PaneHead label="source.red">
           <StatusDot status={status} text={statusText} />
         </PaneHead>
@@ -199,8 +199,8 @@ export function Playground() {
       </div>
 
       {/* Output */}
-      <div className="flex min-h-0 flex-col">
-        <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+      <div className="flex min-h-0 min-w-0 flex-col">
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
           {TABS.map((t) => (
             <TabButton key={t.key} active={tab === t.key} onClick={() => setTab(t.key)}>
               {t.label}
@@ -265,7 +265,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`rounded-md px-3 py-1 font-mono text-xs transition-colors ${
+      className={`shrink-0 rounded-md px-3 py-1 font-mono text-xs transition-colors ${
         active ? "bg-surface-2 text-text" : danger ? "text-red-bright" : "text-faint hover:text-muted"
       }`}
     >

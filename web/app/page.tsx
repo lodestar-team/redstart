@@ -45,7 +45,7 @@ export default function Home() {
     <>
       {/* ---- Hero ---- */}
       <section className="relative overflow-hidden border-b border-line">
-        <div className="relative mx-auto max-w-6xl px-5 pb-24 pt-20 sm:pt-28">
+        <div className="relative mx-auto max-w-6xl px-5 pb-16 pt-16 sm:pb-24 sm:pt-28">
           <Constellation className="pointer-events-none absolute right-0 top-6 hidden h-[420px] w-[420px] opacity-90 lg:block" />
           <Reveal>
             <span className="tag">
@@ -54,7 +54,7 @@ export default function Home() {
             </span>
           </Reveal>
           <Reveal i={1}>
-            <h1 className="display mt-6 max-w-3xl text-5xl sm:text-7xl">
+            <h1 className="display mt-6 max-w-3xl text-4xl sm:text-6xl md:text-7xl">
               Write the subgraph once.
               <br />
               <span className="grad">Not three times.</span>
@@ -80,9 +80,9 @@ export default function Home() {
             </div>
           </Reveal>
           <Reveal i={4}>
-            <div className="mt-6 inline-flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-2.5 font-mono text-sm text-text/90">
-              <span className="text-red-bright">$</span>
-              <span>curl -fsSL redstart-lang.com/install.sh | sh</span>
+            <div className="mt-6 flex w-full max-w-full items-center gap-3 overflow-x-auto rounded-lg border border-line bg-surface px-4 py-2.5 font-mono text-xs text-text/90 sm:inline-flex sm:w-auto sm:text-sm">
+              <span className="shrink-0 text-red-bright">$</span>
+              <span className="whitespace-nowrap">curl -fsSL redstart-lang.com/install.sh | sh</span>
             </div>
           </Reveal>
         </div>
@@ -90,7 +90,7 @@ export default function Home() {
 
       {/* ---- Would you rather maintain this — or this? ---- */}
       <section className="border-b border-line">
-        <div className="mx-auto max-w-6xl px-5 py-24">
+        <div className="mx-auto max-w-6xl px-5 py-16 sm:py-24">
           <Reveal>
             <p className="eyebrow">The pitch</p>
             <h2 className="display mt-3 max-w-2xl text-4xl sm:text-5xl">
@@ -145,7 +145,7 @@ export default function Home() {
 
       {/* ---- Footguns ---- */}
       <section className="border-b border-line">
-        <div className="mx-auto max-w-6xl px-5 py-24">
+        <div className="mx-auto max-w-6xl px-5 py-16 sm:py-24">
           <Reveal>
             <p className="eyebrow">Unrepresentable by construction</p>
             <h2 className="display mt-3 max-w-2xl text-4xl sm:text-5xl">
@@ -175,7 +175,7 @@ export default function Home() {
 
       {/* ---- Eject path ---- */}
       <section className="border-b border-line">
-        <div className="mx-auto grid max-w-6xl gap-12 px-5 py-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
+        <div className="mx-auto grid max-w-6xl gap-12 px-5 py-16 sm:py-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
           <Reveal>
             <p className="eyebrow">No lock-in</p>
             <h2 className="display mt-3 text-4xl sm:text-5xl">
@@ -240,7 +240,7 @@ export default function Home() {
           className="pointer-events-none absolute left-1/2 top-1/2 h-[60vh] w-[60vh] -translate-x-1/2 -translate-y-1/2 rounded-full"
           style={{ background: "radial-gradient(closest-side, rgba(255,51,85,0.18), transparent)" }}
         />
-        <div className="relative mx-auto max-w-6xl px-5 py-28 text-center">
+        <div className="relative mx-auto max-w-6xl px-5 py-20 sm:py-28 text-center">
           <Reveal>
             <Bird glow className="mx-auto h-12 w-12 text-red" />
             <h2 className="display mx-auto mt-6 max-w-2xl text-4xl sm:text-6xl">
