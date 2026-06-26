@@ -107,6 +107,21 @@ reference and store-diffs them at a fixed block.
 > Run it yourself: `./conformance/run.sh build PROJECT=examples/factory`.
 > (Finding the template-import-path bug this caught is exactly why the gate exists.)
 
+## Install
+
+```sh
+# Homebrew (macOS + Linux) — pre-compiled, no Rust required
+brew install lodestar-team/tap/redstart
+
+# Cargo (needs a Rust toolchain)
+cargo install --git https://github.com/lodestar-team/redstart redstart-cli
+```
+
+Or grab a pre-built binary for macOS (arm64/x86_64) or Linux (x86_64/arm64)
+straight from the [latest release](https://github.com/lodestar-team/redstart/releases/latest).
+The commands below use `cargo run` against a checkout; with `redstart` installed,
+substitute `redstart <cmd>`.
+
 ## Try it
 
 ```sh

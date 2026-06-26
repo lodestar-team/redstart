@@ -1,0 +1,131 @@
+name: release
+
+# Cut a release by pushing a tag:
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#
+# This builds `redstart` for macOS (arm64 + x86_64) and Linux (x86_64 + arm64),
+# uploads the archives + sha256 checksums to a GitHub Release, and (if a tap is
+# configured) bumps the Homebrew formula so `brew upgrade` picks it up.
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Manual dry-run: builds the binaries but does not touch any release.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          # Pull release notes from the matching CHANGELOG section if present.
+          changelog: CHANGELOG.md
+          # Don't fail the release if CHANGELOG.md doesn't exist yet.
+          allow-missing-changelog: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    needs: create-release
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: redstart
+          target: ${{ matrix.target }}
+          # Produces e.g. redstart-aarch64-apple-darwin.tar.gz
+          archive: redstart-$target
+          checksum: sha256
+          # The action installs the target and cross linker (incl. for
+          # aarch64-unknown-linux-gnu) automatically.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  bump-homebrew:
+    needs: upload-assets
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Skip cleanly until the tap + token are set up, so a release never fails
+      # just because Homebrew isn't wired yet.
+      - name: Check tap configuration
+        id: cfg
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -n "$TAP_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::HOMEBREW_TAP_TOKEN not set — skipping Homebrew bump. See packaging/homebrew/README.md."
+          fi
+
+      - name: Render and publish formula
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # Override these repository/org variables if your tap lives elsewhere.
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO || 'lodestar-team/homebrew-tap' }}
+          OWNER_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="https://github.com/${OWNER_REPO}/releases/download/${GITHUB_REF_NAME}"
+
+          # Pull the checksums the upload step published alongside each archive.
+          sha() {
+            gh release download "${GITHUB_REF_NAME}" \
+              --repo "${OWNER_REPO}" \
+              --pattern "redstart-$1.tar.gz.sha256" \
+              --output - | cut -d' ' -f1
+          }
+          SHA_MAC_ARM="$(sha aarch64-apple-darwin)"
+          SHA_MAC_X86="$(sha x86_64-apple-darwin)"
+          SHA_LINUX_X86="$(sha x86_64-unknown-linux-gnu)"
+          SHA_LINUX_ARM="$(sha aarch64-unknown-linux-gnu)"
+
+          # Render the committed template into the formula.
+          sed \
+            -e "s|__VERSION__|${VERSION}|g" \
+            -e "s|__BASE__|${BASE}|g" \
+            -e "s|__SHA_MAC_ARM__|${SHA_MAC_ARM}|g" \
+            -e "s|__SHA_MAC_X86__|${SHA_MAC_X86}|g" \
+            -e "s|__SHA_LINUX_X86__|${SHA_LINUX_X86}|g" \
+            -e "s|__SHA_LINUX_ARM__|${SHA_LINUX_ARM}|g" \
+            packaging/homebrew/redstart.rb.tmpl > redstart.rb
+
+          # Commit the rendered formula into the tap repo.
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git" tap
+          mkdir -p tap/Formula
+          mv redstart.rb tap/Formula/redstart.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/redstart.rb
+          git commit -m "redstart ${VERSION}"
+          git push
