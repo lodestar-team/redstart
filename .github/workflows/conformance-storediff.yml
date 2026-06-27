@@ -18,15 +18,15 @@ on:
       project:
         description: "Redstart project to diff"
         type: string
-        default: examples/erc20
+        default: conformance/fixtures/arb-erc20
       block:
         description: "Block to pin the store-diff at"
         type: string
-        required: true
+        default: "477660492"
       network:
         description: "Network name in the manifest"
         type: string
-        default: mainnet
+        default: arbitrum-one
   # Weekly heartbeat — skips cleanly if RPC_URL isn't set.
   schedule:
     - cron: "0 6 * * 1"
@@ -40,9 +40,9 @@ jobs:
     timeout-minutes: 90
     env:
       RPC_URL: ${{ secrets.RPC_URL }}
-      NETWORK: ${{ inputs.network || 'mainnet' }}
-      PROJECT: ${{ inputs.project || 'examples/erc20' }}
-      BLOCK: ${{ inputs.block }}
+      NETWORK: ${{ inputs.network || 'arbitrum-one' }}
+      PROJECT: ${{ inputs.project || 'conformance/fixtures/arb-erc20' }}
+      BLOCK: ${{ inputs.block || '477660492' }}
     steps:
       - uses: actions/checkout@v4
 

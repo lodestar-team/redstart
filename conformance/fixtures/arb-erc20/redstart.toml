@@ -1,0 +1,3 @@
+[project]
+name = "arb-erc20"
+description = "ARB token (Arbitrum One) — conformance store-diff fixture"

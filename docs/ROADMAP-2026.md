@@ -62,11 +62,12 @@ and **deploying it live to Subgraph Studio**.
 - Tooling: native test interpreter (no Docker), LSP, formatter, `dev` watch,
   `deploy`, tree-sitter
 
-**The one unproven thing (still our #1 risk):** the field-level **store-diff** — that
-our generated WASM indexes *byte-identically* to hand-written AssemblyScript against
-a live graph-node. We have proven *compilation* and *native-interpreter behaviour*;
-we have **not** proven *indexing fidelity*. Until that gate is green, "better" is a
-hypothesis with strong compile-time evidence. See [§6](#6-the-kill-gate).
+**The kill-gate is GREEN (2026-06-27).** The field-level **store-diff** — that our
+generated WASM indexes *byte-identically* to hand-written AssemblyScript against a
+live graph-node — is proven: `conformance/fixtures/arb-erc20` (the ARB token on
+Arbitrum One) deployed alongside the hand-written `reference/erc20` reference and
+diffed **0 differences** across 10 Account + 13 Transfer entities at block
+477,660,492. Indexing fidelity is no longer a hypothesis. See [§6](#6-the-kill-gate).
 
 ---
 
@@ -299,24 +300,33 @@ install is table stakes for lovability.
 
 ---
 
-## 6. The kill-gate
+## 6. The kill-gate ✅ GREEN
 
-**The store-diff is still the #1 risk and the highest-value single task in this
-document.** `./conformance/run.sh all` deploys our generated subgraph *and* an
-idiomatic hand-written reference to a real graph-node and field-level-diffs their
-stores at a fixed block. Everything else proves *it compiles* and *the interpreter
-agrees*; only this proves *it indexes identically*. It needs Docker + an archive RPC.
-**Until it's green, every performance and correctness claim above carries an asterisk.**
-Make it a one-command, CI-runnable gate and run it against `examples/horizon-indexer`
-and `examples/factory`.
+`./conformance/run.sh all` deploys our generated subgraph *and* an idiomatic
+hand-written reference to a real graph-node and field-level-diffs their stores at a
+fixed block. Everything else proves *it compiles* and *the interpreter agrees*; only
+this proves *it indexes identically*.
+
+**Proven 2026-06-27** against `conformance/fixtures/arb-erc20` (ARB token, Arbitrum
+One) at block 477,660,492: **0 diffs** across 10 Account + 13 Transfer entities — our
+lowered AssemblyScript produced a store identical to the independent hand-written
+reference. The asterisk is off every claim in this document.
+
+Reproduce: `RPC_URL=<arbitrum-archive> NETWORK=arbitrum-one
+PROJECT=conformance/fixtures/arb-erc20 BLOCK=477660492 ./conformance/run.sh all`
+(after `docker compose -f conformance/docker-compose.yml up -d`). The
+[`conformance-storediff.yml`](../.github/workflows/conformance-storediff.yml)
+workflow runs it in CI once an `RPC_URL` secret is set. **Next:** add hand-written
+references for `factory` / `horizon-indexer` to widen the gate.
 
 ---
 
 ## 7. Prioritised backlog (the order to actually build)
 
 **P0 — proves the bet / unblocks everything**
-1. Store-diff conformance gate, green, in CI (§6) — *workflow wired
-   (`conformance-storediff.yml`), awaiting an `RPC_URL` secret + Docker runner*
+1. ✅ Store-diff conformance gate **GREEN** (§6) — proven on Arbitrum
+   (`conformance/fixtures/arb-erc20`, 0 diffs). CI runs it via
+   `conformance-storediff.yml` once `RPC_URL` is set.
 2. ✅ `--json` diagnostics (§5.1, v0.2.0) + ✅ `redstart explain` error-code docs
    (§5.5, v0.3.0) — the agent loop is unblocked.
 3. `redstart new --from 0x<address>` (§5.4) — the adoption on-ramp

@@ -1,0 +1,8 @@
+{
+  "name": "redstart-conformance-build",
+  "private": true,
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "latest",
+    "@graphprotocol/graph-ts": "latest"
+  }
+}
