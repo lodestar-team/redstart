@@ -27,6 +27,21 @@ roadmap below is reachable by "just write AssemblyScript":
    scanning ten million dead blocks. Redstart owns the schema, the manifest, *and*
    the mappings — so it can apply every documented performance best-practice
    automatically.
+3. **We own the layer that emits the AssemblyScript.** A human writes *some* AS; we
+   write *every line* of it, for every subgraph, from a model that understands what
+   it's building. So the generated output isn't "as good as a careful human" — it's
+   the **provably-optimal AS no human would bother to hand-write**: the fastest
+   id type, the right immutability, declared parallel calls, pruned storage,
+   coalesced loads — applied uniformly, every time, with zero developer effort.
+
+> **The unlock (2026-06-27): the kill-gate is green, so we can optimise
+> fearlessly.** Every performance rewrite changes the emitted AssemblyScript — and
+> the field-level store-diff ([§6](#6-the-kill-gate)) *proves* it produces a
+> byte-identical store. So the loop is: **rewrite → `run.sh all` → "0 diffs, but
+> 28% faster, 48% less disk."** Nothing else in the subgraph ecosystem has a
+> closed loop that lets it change generated code and *prove* the data is identical.
+> This is what makes "truly perfect generated code" a buildable goal rather than a
+> slogan.
 
 The strongest external evidence for lever #1: The Graph already ships a
 [**Subgraph Linter**](https://thegraph.com/docs/en/subgraphs/guides/subgraph-linter/)
@@ -37,8 +52,9 @@ The Graph admits are footguns but can only *warn* about.** Redstart's mission is
 turn every one of them into a *compile error or an absent grammar rule.*
 
 **The one-line pitch we are building toward:**
-*"Redstart makes the Subgraph Linter unrepresentable and applies every performance
-best-practice automatically — which a language never can."*
+*"Redstart makes the Subgraph Linter unrepresentable and emits AssemblyScript that
+is faster than what a human would hand-write — automatically, uniformly, and
+provably store-identical. Which a language never can."*
 
 ---
 
@@ -75,11 +91,17 @@ diffed **0 differences** across 10 Account + 13 Transfer entities at block
 
 | Lever | What it is | Why AS can't | Status |
 |---|---|---|---|
-| **1. Unrepresentable bugs** | Turn the 8 Subgraph-Linter checks + determinism hazards into compile errors / absent grammar | AS has no model of entities, saves, determinism, reverts | ~half done |
-| **2. Optimising compiler** | Apply every documented perf best-practice automatically (startBlock, declared eth_calls, Bytes ids, immutable inference, derived-array rewrite, pruning) | AS doesn't know it's a subgraph | not started |
-| **3. Agent-native** | Structured diagnostics, in-loop native tests, MCP server, scaffold-from-address | n/a — this is product surface | partially done |
+| **1. Unrepresentable bugs** | Turn the 8 Subgraph-Linter checks + determinism hazards into compile errors / absent grammar | AS has no model of entities, saves, determinism, reverts | **~70% — the high-frequency footguns are dead** (null-deref, option-arith, determinism, div-zero, precision, reverts, derived, auto-save) |
+| **2. Optimising compiler** | Apply every documented perf best-practice automatically (startBlock, declared eth_calls, Bytes ids, immutable inference, derived-array rewrite, pruning) | AS doesn't know it's a subgraph | **the live frontier** — barely started, and now *gate-verifiable*. This is the categorical advantage. |
+| **3. Agent-native** | Structured diagnostics, in-loop native tests, MCP server, scaffold-from-address | n/a — this is product surface | **~40%** — `--json` + `explain` shipped; MCP + scaffold-from-address pending |
 
-The rest of this doc is the backlog for each, pillar by pillar, with citations.
+**Where the leverage is now.** Lever 1 makes Redstart *safer* than AS — and the
+common cases are done. Lever 2 makes it *faster* than AS, and it's the one a
+language fundamentally cannot pull: a hand-written and a Redstart subgraph can be
+equally correct, but only Redstart can auto-apply Bytes-ids, declared `eth_calls`,
+`@derivedFrom` rewrites and pruning to *every* subgraph. With the kill-gate green,
+**Lever 2 is both the most differentiated and the now-safest work left** — so it is
+the priority arc from here. The rest of this doc is the backlog, pillar by pillar.
 
 ---
 
@@ -177,8 +199,16 @@ entities at compile time.
 
 ## 4. Pillar: Performance — *be an optimising compiler*
 
-This is the lever AS physically cannot pull. Legend: **[AUTO]** compiler rewrites it ·
-**[WARN]** compiler flags it. Priority order (highest leverage first).
+This is the lever AS physically cannot pull, and **the priority arc** (see §2). Legend:
+**[AUTO]** compiler rewrites it · **[WARN]** compiler flags it. Priority order (highest
+leverage first).
+
+> **Every `[AUTO]` rewrite ships with a proof.** Because we own codegen, an
+> optimisation is just a different — better — lowering of the same `.red`. The green
+> kill-gate ([§6](#6-the-kill-gate)) turns "trust me, it's equivalent" into a
+> CI-checkable fact: apply the rewrite, run `run.sh all`, and the store-diff must
+> still read **0 differences**. Optimise the generated AssemblyScript as aggressively
+> as the data allows — and prove, every time, that the indexed result is byte-identical.
 
 ### 4.1 🔜 [AUTO] Auto-fill `startBlock` from the deployment block — **HIGHEST single win**
 Omitting / lowballing `startBlock` scans millions of dead blocks; too high silently
@@ -272,10 +302,23 @@ Already a moat over Matchstick (no Docker/WASM, sub-second). Keep investing: ric
 assertions, fixture helpers, coverage. An agent can write-and-run a test in the same
 turn — Matchstick can't touch that loop time.
 
-### 5.3 🔜 MCP server
-Expose `check` / `build` / `test` / `explain` / `new-from-address` as MCP tools so any
-agent (Claude Code, Cursor, …) drives Redstart natively. This is the distribution
-play for the agent era.
+### 5.3 🔜 MCP — two complementary layers
+There are **two** MCP layers in a Redstart agent story; they don't compete.
+
+- **Author-side (`redstart mcp`) — we build this; it doesn't exist.** Expose
+  `check` / `build` / `test` / `explain` / `new-from-address` as MCP tools so any
+  agent (Claude Code, Cursor, …) *writes and verifies* a Redstart subgraph in-loop.
+  This is the natural payoff of the `--json` + `explain` groundwork and the
+  distribution play for the agent era. **Highest-priority MCP work.**
+- **Consumer-side — adopt, don't rebuild.** [`graphops/subgraph-mcp`](https://github.com/graphops/subgraph-mcp)
+  (Rust; *query* deployed subgraphs — search, schema, execute GraphQL) and
+  `subgraph-registry-mcp` (npm; *discover* subgraphs) already exist and are
+  maintained. An agent authoring a subgraph wants these too — to find a reference
+  deployment, crib a schema, and **verify its freshly-deployed Redstart subgraph
+  returns the right data**. Recommend them as companions now; only **fork
+  `graphops/subgraph-mcp` into `lodestar-team`** once we want a Redstart-specific
+  tool such as *"diff my live deployment against my `.red` source"* — a natural
+  extension of the kill-gate, but step 2, not step 1.
 
 ### 5.4 🔜 `redstart new --from 0x<address> [--network …]` — the no-brainer on-ramp
 Fetch the ABI + deployment block (Etherscan/Sourcify), scaffold a working starter
@@ -323,28 +366,37 @@ references for `factory` / `horizon-indexer` to widen the gate.
 
 ## 7. Prioritised backlog (the order to actually build)
 
-**P0 — proves the bet / unblocks everything**
-1. ✅ Store-diff conformance gate **GREEN** (§6) — proven on Arbitrum
-   (`conformance/fixtures/arb-erc20`, 0 diffs). CI runs it via
-   `conformance-storediff.yml` once `RPC_URL` is set.
-2. ✅ `--json` diagnostics (§5.1, v0.2.0) + ✅ `redstart explain` error-code docs
-   (§5.5, v0.3.0) — the agent loop is unblocked.
-3. `redstart new --from 0x<address>` (§5.4) — the adoption on-ramp
+### Done (v0.1.0 → v0.8.0)
+- ✅ **Store-diff kill-gate GREEN** (§6) — the bet is proven.
+- ✅ `--json` diagnostics (§5.1) + `redstart explain` (§5.5) — agent loop unblocked.
+- ✅ Determinism E080 (§3.7); division-guard E090 + BigInt→Decimal precision W030
+  (§3.4/3.5); handler-shape lints W010/W011 (§4.7) + warning severity;
+  `eth_call`-in-loop W020 (§4.2 partial); ABI `anonymous` normalisation.
+- ✅ Editor + distribution maturity: VS Code + Zed extensions, playground, docs site,
+  release/CI/snapshot pipelines.
 
-**P1 — the headline differentiators (lever 1 + 2)**
-4. ✅ Division-guard (E090) + BigInt→Decimal precision (W030) (§3.4/3.5, v0.8.0)
-5. ✅ Determinism: forbid `Date.now`/`Math.random` (§3.7, E080, v0.4.0)
-6. Auto `startBlock` from deployment block (§4.1)
-7. Auto-declare `eth_calls` (§4.2)
-8. Collision-resistant typed IDs; forbid string-concat IDs (§3.8)
-9. Tuple/struct event-signature expansion (§3.9)
+### NEXT ARC — Lever 2, the optimising compiler (the categorical advantage)
+*All offline-doable, all provable store-identical via the green gate. Ship each as
+a release, each with a `run.sh all` "0 diffs but N% faster" proof.*
+1. **Bytes-id + `immutable` inference (§4.3)** — measured **28% faster / 48% less
+   disk**. The flagship; start here.
+2. **Stored-array → `@derivedFrom` rewrite (§4.4)** — O(n²) → O(n) disk.
+3. **`prune: auto` default (§4.5)** — smaller DB, faster queries, for free.
+4. **Load coalescing / loop-invariant hoist (§4.6)**.
 
-**P2 — the optimising-compiler depth + polish**
-10. Bytes-id + immutable inference (§4.3)
-11. Stored-array → `@derivedFrom` rewrite (§4.4)
-12. `prune: auto` default + handler-shape lints (§4.5, §4.7)
-13. MCP server (§5.3); LSP code actions (§5.6)
-14. Load coalescing / loop-invariant hoist (§4.6)
+### Then — Lever 3 author-side MCP + remaining Lever-1 bugs
+5. **`redstart mcp` author-side server (§5.3)** — the agent-distribution keystone.
+6. Collision-resistant typed IDs (§3.8); tuple/struct event-signature expansion (§3.9);
+   BigDecimal-ceiling warning (§3.6); LSP code actions (§5.6).
+
+### Network/credential-gated (need a key or confirmation)
+7. `redstart new --from 0x<address>` (§5.4) — biggest adoption lever; Etherscan/Sourcify.
+8. Auto `startBlock` from deployment block (§4.1); auto-*declare* `eth_calls` for
+   parallel prefetch (§4.2, the manifest `calls:` block — 5–10×).
+
+### Widen the proof
+9. Hand-written references for `factory` / `horizon-indexer` under
+   `conformance/reference/`, so the gate covers more of the surface than ERC-20.
 
 ---
 
