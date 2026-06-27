@@ -23,19 +23,19 @@ export function Footer() {
           <Link href="/playground" className="transition-colors hover:text-text">
             Playground
           </Link>
-          <a href={DOCS} className="transition-colors hover:text-text">
+          <a href={DOCS} target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-text">
             Documentation
           </a>
         </div>
         <div className="flex flex-col gap-2 text-sm text-muted">
           <span className="eyebrow mb-1">Source</span>
-          <a href={REPO} className="transition-colors hover:text-text">
+          <a href={REPO} target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-text">
             GitHub
           </a>
-          <a href={`${REPO}/releases`} className="transition-colors hover:text-text">
+          <a href={`${REPO}/releases`} target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-text">
             Releases
           </a>
-          <a href={`${REPO}/tree/main/rfcs`} className="transition-colors hover:text-text">
+          <a href={`${REPO}/tree/main/rfcs`} target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-text">
             RFCs
           </a>
         </div>

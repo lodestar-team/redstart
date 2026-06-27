@@ -20,12 +20,16 @@ export function Nav() {
           </Link>
           <a
             href={DOCS}
+            target="_blank"
+            rel="noopener noreferrer"
             className="rounded-md px-2.5 py-1.5 transition-colors hover:bg-surface hover:text-text sm:px-3"
           >
             Docs
           </a>
           <a
             href={REPO}
+            target="_blank"
+            rel="noopener noreferrer"
             className="rounded-md px-2.5 py-1.5 transition-colors hover:bg-surface hover:text-text sm:px-3"
           >
             GitHub

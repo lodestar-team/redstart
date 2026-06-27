@@ -28,6 +28,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Enables Pages (Actions source) if it isn't already — self-healing.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Install mdBook
         uses: peaceiris/actions-mdbook@v2
         with:
