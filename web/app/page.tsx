@@ -38,6 +38,14 @@ const FOOTGUNS = [
     t: "== vs === inversion",
     d: "One equality, lowered correctly every time. The classic AssemblyScript footgun is gone.",
   },
+  {
+    t: "Non-determinism",
+    d: "Date.now() and Math.random() are a compile error — they diverge Proof-of-Indexing across indexers and get them slashed.",
+  },
+  {
+    t: "eth_call in a loop",
+    d: "A contract call inside a loop — the documented 'stuck at 3%' sync killer — is flagged before you deploy it.",
+  },
 ];
 
 export default function Home() {
@@ -190,9 +198,11 @@ export default function Home() {
               code, and it keeps working.
             </p>
             <p className="mt-4 max-w-lg leading-relaxed text-muted">
-              That claim is continuously checked: a field-level store-diff
-              against independently hand-written subgraphs is the project&apos;s
-              stated kill/pivot gate.
+              And it&apos;s <span className="text-text">proven</span>, not promised:
+              deployed to a live graph-node against an independent hand-written
+              reference, our lowered AssemblyScript store-diffed{" "}
+              <span className="text-text">0 differences</span> across every entity
+              and field — byte-identical indexing.
             </p>
           </Reveal>
           <Reveal i={1}>
