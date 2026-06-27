@@ -1,6 +1,11 @@
 # Redstart
 
-**A multi-file language for authoring The Graph subgraphs.**
+**The most performant and secure language for authoring The Graph subgraphs.**
+
+Unifying schema, manifest, and mappings into one typed source is just the start.
+Because Redstart owns the layer that emits the AssemblyScript, it generates code
+that's *faster and safer than any human would hand-write* — and proves it indexes
+byte-identically against a live graph-node. **If it compiles, it works.**
 
 Today a subgraph is three loosely-coupled artifacts — `schema.graphql`,
 `subgraph.yaml`, and AssemblyScript mappings — stitched together by stringly-typed

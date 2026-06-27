@@ -14,18 +14,19 @@ const display = Space_Grotesk({
 });
 
 const SITE = "https://redstart-lang.com";
+const TAGLINE = "Redstart — the best language for building The Graph subgraphs";
 const DESCRIPTION =
-  "Redstart unifies schema, manifest, and mappings into one typed language for The Graph subgraphs — and transpiles to AssemblyScript the canonical toolchain compiles unmodified.";
+  "The most performant and secure language for authoring The Graph subgraphs. One typed source for schema, manifest, and mappings — compiled to AssemblyScript that's faster and safer than any human would hand-write. If it compiles, it works.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE),
   title: {
-    default: "Redstart — one language for The Graph subgraphs",
+    default: TAGLINE,
     template: "%s · Redstart",
   },
   description: DESCRIPTION,
   openGraph: {
-    title: "Redstart — one language for The Graph subgraphs",
+    title: TAGLINE,
     description: DESCRIPTION,
     url: SITE,
     siteName: "Redstart",
@@ -33,7 +34,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Redstart",
+    title: TAGLINE,
     description: DESCRIPTION,
   },
 };

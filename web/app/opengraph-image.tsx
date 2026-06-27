@@ -58,7 +58,7 @@ export default async function Image() {
             Write the subgraph once.
           </span>
           <span style={{ fontSize: 88, fontWeight: 700, lineHeight: 1.0, color: EMBER, letterSpacing: "-0.03em" }}>
-            Not three times.
+            Properly.
           </span>
         </div>
 
@@ -74,7 +74,7 @@ export default async function Image() {
             fontSize: 23,
           }}
         >
-          <span style={{ color: MUTED }}>One typed language for The Graph subgraphs</span>
+          <span style={{ color: MUTED }}>The most performant &amp; secure language for The Graph subgraphs</span>
           <span style={{ color: TEXT }}>redstart-lang.com</span>
         </div>
       </div>
