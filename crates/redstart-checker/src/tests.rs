@@ -378,3 +378,36 @@ fn no_precision_warning_for_bigint_field() {
         "unexpected W030"
     );
 }
+
+/// Build a one-file project and return the checked symbol table.
+fn check_project(src: &str) -> crate::Checked {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("src/abis")).unwrap();
+    fs::write(
+        dir.path().join("redstart.toml"),
+        "[project]\nname = \"t\"\nentry = \"src/main.red\"",
+    )
+    .unwrap();
+    fs::write(dir.path().join("src/abis/ERC20.json"), ABI).unwrap();
+    fs::write(dir.path().join("src/main.red"), src).unwrap();
+    let tree = redstart_loader::load(dir.path()).unwrap();
+    crate::check(&tree).expect("should check")
+}
+
+#[test]
+fn infers_immutable_for_append_only_entities() {
+    let src = format!(
+        "{PREAMBLE}\nentity Log {{ id: Id<Bytes> n: BigInt }}\nhandler on Token.Transfer(event) {{\n  let a = Account.loadOrCreate(event.params.from, {{ balance: BigInt.zero }})\n  a.balance = a.balance + event.params.value\n  let l = Log.create(event.id, {{ n: event.params.value }})\n}}\n"
+    );
+    let checked = check_project(&src);
+    // Log is only ever created -> append-only -> inferred immutable.
+    assert!(
+        checked.immutable_inferred.contains("Log"),
+        "Log should be immutable"
+    );
+    // Account is loadOrCreate'd and field-mutated -> stays mutable.
+    assert!(
+        !checked.immutable_inferred.contains("Account"),
+        "Account must not be inferred immutable"
+    );
+}

@@ -346,6 +346,9 @@ fn cmd_build(path: &Path) -> Result<(), String> {
     for warning in &generated.warnings {
         eprintln!("warning: {warning}");
     }
+    for note in &generated.notes {
+        println!("\x1b[36m⚡ {note}\x1b[0m");
+    }
 
     println!("✓ built {} → {}", tree.name, tree.out_dir.display());
     println!("  • schema.graphql");

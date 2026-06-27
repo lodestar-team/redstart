@@ -34,7 +34,7 @@ use redstart_parser::ast::{
     EntityDecl, Expr, FieldDecl, ForIter, HandlerDecl, HandlerKind, MatchArm, Pattern, Setting,
     SourceDecl, Stmt, TemplateDecl, TypeExpr,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 pub use ty::{is_scalar, resolve_type, sol_to_rty, EntityInfo, RTy};
 
 /// The validated symbol table produced by a successful [`check`].
@@ -45,6 +45,10 @@ pub struct Checked {
     pub source_abi: HashMap<String, String>,
     /// ABI access (resolved file paths, event/function lookups).
     pub abis: AbiIndex,
+    /// Entities that are provably append-only — created but never loaded or
+    /// mutated anywhere — so codegen can emit `@entity(immutable: true)`. Immutable
+    /// entities index faster and use less disk (Edge & Node: up to 19% / 48%).
+    pub immutable_inferred: HashSet<String>,
 }
 
 /// Run semantic analysis. On error, returns rendered diagnostics (one string
@@ -263,11 +267,13 @@ fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, 
         }
     }
 
+    let immutable_inferred = collect_immutable_entities(tree);
     (
         Checked {
             entities,
             source_abi,
             abis,
+            immutable_inferred,
         },
         diags,
     )
@@ -1413,6 +1419,174 @@ fn infer_call(callee: &Expr, ctx: &BodyCtx, locals: &HashMap<String, RTy>) -> RT
 
 /// A record literal's fields, as found in a constructor call's second argument.
 type CtorRecord<'a> = Option<&'a [(redstart_parser::Ident, Expr)]>;
+
+/// Whole-program analysis for `immutable` inference (roadmap §4.3): an entity is
+/// **append-only** if it's `create`d somewhere and *never* loaded (`load` /
+/// `loadInBlock` / `loadOrCreate`) and never has a field assigned. Such entities
+/// can be marked `@entity(immutable: true)` — graph-node stores them far more
+/// cheaply. Conservative by construction: anything we can't prove append-only is
+/// left mutable, and the store-diff gate is the backstop.
+fn collect_immutable_entities(tree: &ModuleTree) -> HashSet<String> {
+    let mut created: HashSet<String> = HashSet::new();
+    let mut mutated: HashSet<String> = HashSet::new();
+    for m in tree.ordered() {
+        for h in &m.program.handlers {
+            walk_mut(
+                &h.body.stmts,
+                &mut HashMap::new(),
+                &mut created,
+                &mut mutated,
+            );
+        }
+        for f in &m.program.functions {
+            walk_mut(
+                &f.body.stmts,
+                &mut HashMap::new(),
+                &mut created,
+                &mut mutated,
+            );
+        }
+    }
+    created.difference(&mutated).cloned().collect()
+}
+
+/// `Entity.<method>(...)` call → `(entity, method)` for the create/load family.
+fn entity_call_method(value: &Expr) -> Option<(String, &str)> {
+    let Expr::Call { callee, .. } = value else {
+        return None;
+    };
+    let Expr::Field { base, field, .. } = callee.as_ref() else {
+        return None;
+    };
+    let method = match field.name.as_str() {
+        m @ ("create" | "loadOrCreate" | "load" | "loadInBlock") => m,
+        _ => return None,
+    };
+    let Expr::Path { segments, .. } = base.as_ref() else {
+        return None;
+    };
+    Some((segments.last()?.name.clone(), method))
+}
+
+fn note_entity_call(
+    value: &Expr,
+    locals: &mut HashMap<String, String>,
+    bind: Option<&str>,
+    created: &mut HashSet<String>,
+    mutated: &mut HashSet<String>,
+) {
+    if let Some((entity, method)) = entity_call_method(value) {
+        match method {
+            "create" => {
+                created.insert(entity.clone());
+            }
+            _ => {
+                mutated.insert(entity.clone());
+            }
+        }
+        if let Some(var) = bind {
+            locals.insert(var.to_string(), entity);
+        }
+    }
+}
+
+fn walk_mut(
+    stmts: &[Stmt],
+    locals: &mut HashMap<String, String>,
+    created: &mut HashSet<String>,
+    mutated: &mut HashSet<String>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { name, value, .. } => {
+                note_entity_call(value, locals, Some(&name.name), created, mutated);
+                walk_expr_mut(value, locals, created, mutated);
+            }
+            Stmt::Assign { target, value, .. } => {
+                // `entityVar.field = …` mutates that entity.
+                if let Expr::Field { base, .. } = target {
+                    if let Some(var) = path_name(base) {
+                        if let Some(entity) = locals.get(&var) {
+                            mutated.insert(entity.clone());
+                        }
+                    }
+                }
+                walk_expr_mut(value, locals, created, mutated);
+            }
+            Stmt::Return { value: Some(v), .. } => walk_expr_mut(v, locals, created, mutated),
+            Stmt::Return { .. } => {}
+            Stmt::If {
+                cond,
+                then_block,
+                else_ifs,
+                else_block,
+                ..
+            } => {
+                walk_expr_mut(cond, locals, created, mutated);
+                walk_mut(&then_block.stmts, &mut locals.clone(), created, mutated);
+                for (c, b) in else_ifs {
+                    walk_expr_mut(c, locals, created, mutated);
+                    walk_mut(&b.stmts, &mut locals.clone(), created, mutated);
+                }
+                if let Some(b) = else_block {
+                    walk_mut(&b.stmts, &mut locals.clone(), created, mutated);
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                walk_expr_mut(cond, locals, created, mutated);
+                walk_mut(&body.stmts, &mut locals.clone(), created, mutated);
+            }
+            Stmt::For { body, .. } => {
+                walk_mut(&body.stmts, &mut locals.clone(), created, mutated);
+            }
+            Stmt::Expr(e) => walk_expr_mut(e, locals, created, mutated),
+        }
+    }
+}
+
+fn walk_expr_mut(
+    expr: &Expr,
+    locals: &HashMap<String, String>,
+    created: &mut HashSet<String>,
+    mutated: &mut HashSet<String>,
+) {
+    // A create/load used as a bare expression (not let-bound) still counts.
+    if let Some((entity, method)) = entity_call_method(expr) {
+        if method == "create" {
+            created.insert(entity);
+        } else {
+            mutated.insert(entity);
+        }
+    }
+    match expr {
+        Expr::Call { callee, args, .. } => {
+            walk_expr_mut(callee, locals, created, mutated);
+            for a in args {
+                walk_expr_mut(a, locals, created, mutated);
+            }
+        }
+        Expr::Field { base, .. } => walk_expr_mut(base, locals, created, mutated),
+        Expr::Binary { lhs, rhs, .. } => {
+            walk_expr_mut(lhs, locals, created, mutated);
+            walk_expr_mut(rhs, locals, created, mutated);
+        }
+        Expr::Unary { expr, .. } => walk_expr_mut(expr, locals, created, mutated),
+        Expr::Record { fields, .. } => {
+            for (_, v) in fields {
+                walk_expr_mut(v, locals, created, mutated);
+            }
+        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            walk_expr_mut(scrutinee, locals, created, mutated);
+            for arm in arms {
+                walk_mut(&arm.body.stmts, &mut locals.clone(), created, mutated);
+            }
+        }
+        _ => {}
+    }
+}
 
 /// Detect an `Entity.loadOrCreate(id, {..})` / `Entity.create(id, {..})` /
 /// `Entity.load(id)` / `Entity.loadInBlock(id)` call, returning the entity name,

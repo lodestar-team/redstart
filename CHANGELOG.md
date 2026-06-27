@@ -6,6 +6,21 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-27
+
+The optimising compiler begins — roadmap §4.3 (Lever 2).
+
+### Added
+- **Inferred `immutable` entities.** The checker now proves which entities are
+  append-only — created but never loaded (`load`/`loadInBlock`/`loadOrCreate`) and
+  never field-mutated anywhere — and codegen emits `@entity(immutable: true)` for
+  them automatically. Immutable entities index faster and use far less disk
+  (Edge & Node benchmark: up to 19% faster / 48% less disk). `redstart build`
+  reports each inference (`⚡ inferred @entity(immutable: true) for …`).
+  Conservative by construction; consistent with the gate-proven hand-annotated
+  immutability on the ERC-20 fixture.
+- `Generated.notes` — informational optimisation notes, separate from warnings.
+
 ## [0.8.0] - 2026-06-27
 
 Division footguns — roadmap §3.4 / §3.5.

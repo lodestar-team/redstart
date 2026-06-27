@@ -230,7 +230,7 @@ metadata calls (`name`/`symbol`/`decimals`) not behind a `load()==null` cache.
 [reduce eth_calls](https://thegraph.com/blog/improve-subgraph-performance-reduce-eth-calls/) ·
 [declared calls (Goldsky)](https://docs.goldsky.com/subgraphs/guides/declared-eth-calls)
 
-### 4.3 🔜 [AUTO] Default `Bytes` ids + infer `immutable: true`
+### 4.3 ✅→🔜 [AUTO] Infer `immutable: true` (v0.9.0) · Bytes-ids next
 Measured (Edge & Node benchmark): immutable + Bytes ids → **28% faster indexing,
 48% less disk** vs mutable + String ids. **[AUTO]**: when an id comes from a Bytes
 source only `.toHexString()`'d to fit a `String!`, rewrite the field to `id: Bytes!`
@@ -378,8 +378,9 @@ references for `factory` / `horizon-indexer` to widen the gate.
 ### NEXT ARC — Lever 2, the optimising compiler (the categorical advantage)
 *All offline-doable, all provable store-identical via the green gate. Ship each as
 a release, each with a `run.sh all` "0 diffs but N% faster" proof.*
-1. **Bytes-id + `immutable` inference (§4.3)** — measured **28% faster / 48% less
-   disk**. The flagship; start here.
+1. ✅ **`immutable` inference (§4.3, v0.9.0)** — auto-marks append-only entities
+   `@entity(immutable: true)` (created-but-never-loaded/mutated); consistent with the
+   gate-proven erc20 annotations. **Next:** the Bytes-id half (default `Id<Bytes>`).
 2. **Stored-array → `@derivedFrom` rewrite (§4.4)** — O(n²) → O(n) disk.
 3. **`prune: auto` default (§4.5)** — smaller DB, faster queries, for free.
 4. **Load coalescing / loop-invariant hoist (§4.6)**.

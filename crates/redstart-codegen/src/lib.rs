@@ -39,6 +39,8 @@ pub struct Generated {
     pub abi_copies: Vec<(String, PathBuf)>,
     /// Non-fatal warnings raised during generation.
     pub warnings: Vec<String>,
+    /// Informational optimisation notes (e.g. inferred `immutable`) — not problems.
+    pub notes: Vec<String>,
 }
 
 impl Generated {
@@ -126,8 +128,24 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
 
     let entity_names: Vec<String> = entities.iter().map(|e| e.name.name.clone()).collect();
 
-    // ---- schema ----
-    let schema = schema::render(&entities, &enums, &interfaces, &aggregations);
+    // ---- schema (with inferred `immutable` — roadmap §4.3) ----
+    let schema = schema::render(
+        &entities,
+        &enums,
+        &interfaces,
+        &aggregations,
+        &checked.immutable_inferred,
+    );
+    // Surface the optimisation so it isn't silent: only entities the user didn't
+    // already mark immutable.
+    let inferred: Vec<&str> = entities
+        .iter()
+        .filter(|e| {
+            checked.immutable_inferred.contains(&e.name.name)
+                && !e.modifiers.iter().any(|m| m.name == "immutable")
+        })
+        .map(|e| e.name.name.as_str())
+        .collect();
 
     // ---- manifest ----
     let uses_aggregations = !aggregations.is_empty()
@@ -167,6 +185,13 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
         mappings::render(&handlers, &functions, &entity_names, &mut env)
     };
     warnings.extend(map_warnings);
+    let mut notes = Vec::new();
+    if !inferred.is_empty() {
+        notes.push(format!(
+            "inferred @entity(immutable: true) for {} (append-only — indexes faster, less disk)",
+            inferred.join(", ")
+        ));
+    }
 
     // ---- ABI copies ----
     let abi_copies: Vec<(String, PathBuf)> = checked
@@ -182,6 +207,7 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
         mappings: mappings_src,
         abi_copies,
         warnings,
+        notes,
     }
 }
 
