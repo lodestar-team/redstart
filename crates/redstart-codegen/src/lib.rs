@@ -192,6 +192,10 @@ pub fn generate(tree: &ModuleTree, checked: &mut Checked) -> Generated {
             inferred.join(", ")
         ));
     }
+    notes.push(
+        "indexerHints: prune: auto — smaller DB & faster queries (keeps only reorg history)"
+            .to_string(),
+    );
 
     // ---- ABI copies ----
     let abi_copies: Vec<(String, PathBuf)> = checked

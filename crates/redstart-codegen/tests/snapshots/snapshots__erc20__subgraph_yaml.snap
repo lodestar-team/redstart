@@ -8,6 +8,8 @@ description: Tracks ERC-20 account balances — the Redstart vertical slice.
 # subgraph: erc20-balances
 schema:
   file: ./schema.graphql
+indexerHints:
+  prune: auto
 dataSources:
   - kind: ethereum
     name: Token

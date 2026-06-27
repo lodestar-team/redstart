@@ -8,6 +8,8 @@ description: Factory + pair-template subgraph exercising every handler kind, con
 # subgraph: factory
 schema:
   file: ./schema.graphql
+indexerHints:
+  prune: auto
 dataSources:
   - kind: ethereum
     name: FactoryContract

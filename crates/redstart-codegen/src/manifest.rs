@@ -54,6 +54,12 @@ pub fn render(input: &ManifestInput, abi_index: &mut AbiIndex) -> (String, Vec<S
     out.push_str(&format!("# subgraph: {}\n", input.name));
     out.push_str("schema:\n  file: ./schema.graphql\n");
 
+    // Default to pruning historical entity versions (§4.5): the graph-node default
+    // is `prune: never` (largest DB, slowest queries). `auto` keeps only the
+    // history needed for reorgs — smaller DB, faster queries — with no effect on
+    // current-state queries.
+    out.push_str("indexerHints:\n  prune: auto\n");
+
     out.push_str("dataSources:\n");
     for source in input.sources {
         render_data_source(&mut out, source, input, abi_index, &mut warnings);

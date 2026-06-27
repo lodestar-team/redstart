@@ -8,6 +8,8 @@ description: Indexes The Graph Horizon staking, allocations, delegations, and re
 # subgraph: horizon-indexer
 schema:
   file: ./schema.graphql
+indexerHints:
+  prune: auto
 dataSources:
   - kind: ethereum
     name: HorizonStaking

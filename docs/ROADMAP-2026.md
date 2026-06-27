@@ -250,7 +250,7 @@ annotate the parent `@derivedFrom`, rewrite `push` → `child.save()`.
 *Refs:* [derivedFrom](https://thegraph.com/docs/en/subgraphs/best-practices/derivedfrom/) ·
 [avoid large arrays](https://thegraph.com/blog/improve-subgraph-performance-avoiding-large-arrays/)
 
-### 4.5 🔜 [AUTO] Default `indexerHints: prune: auto`
+### 4.5 ✅ [AUTO] Default `indexerHints: prune: auto` (v0.10.0)
 Absent `indexerHints`, the default is `prune: never` (largest DB, slowest queries).
 Default to `prune: auto`; **[WARN]** and downgrade to `prune: <N>`/`never` when
 grafting or time-travel queries are detected (pruning breaks both).
@@ -382,7 +382,7 @@ a release, each with a `run.sh all` "0 diffs but N% faster" proof.*
    `@entity(immutable: true)` (created-but-never-loaded/mutated); consistent with the
    gate-proven erc20 annotations. **Next:** the Bytes-id half (default `Id<Bytes>`).
 2. **Stored-array → `@derivedFrom` rewrite (§4.4)** — O(n²) → O(n) disk.
-3. **`prune: auto` default (§4.5)** — smaller DB, faster queries, for free.
+3. ✅ **`prune: auto` default (§4.5, v0.10.0)** — smaller DB, faster queries, for free.
 4. **Load coalescing / loop-invariant hoist (§4.6)**.
 
 ### Then — Lever 3 author-side MCP + remaining Lever-1 bugs

@@ -6,6 +6,17 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-27
+
+Optimising compiler — roadmap §4.5.
+
+### Added
+- **`indexerHints: prune: auto` by default.** graph-node's default is
+  `prune: never` (largest DB, slowest queries); Redstart now emits `prune: auto`,
+  which keeps only the history needed for reorgs — a smaller database and faster
+  queries, with no effect on current-state queries. The eject path is unchanged
+  (`graph build` accepts it). Reported as a build note.
+
 ## [0.9.0] - 2026-06-27
 
 The optimising compiler begins — roadmap §4.3 (Lever 2).
