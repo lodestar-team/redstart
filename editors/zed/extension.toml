@@ -11,7 +11,7 @@ repository = "https://github.com/lodestar-team/redstart"
 # The tree-sitter grammar lives in a subdirectory of the main repo.
 path = "tree-sitter-redstart"
 # Pin to the commit that contains the generated grammar (filled on release).
-commit = "REPLACE_WITH_COMMIT_SHA"
+commit = "f050576545ffcdbaac8826575d327d54c77a1c23"
 
 [language_servers.redstart]
 name = "Redstart"
