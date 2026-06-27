@@ -19,3 +19,6 @@ node_modules/
 
 # Zed extension build
 /editors/zed/target/
+
+# Zed-built grammar artifacts (cloned during dev-install)
+/editors/zed/grammars/
