@@ -134,8 +134,7 @@ cargo install --git https://github.com/lodestar-team/redstart redstart-cli
 
 Or grab a pre-built binary for macOS (arm64/x86_64) or Linux (x86_64/arm64)
 straight from the [latest release](https://github.com/lodestar-team/redstart/releases/latest).
-The commands below use `cargo run` against a checkout; with `redstart` installed,
-substitute `redstart <cmd>`.
+Any of these put a `redstart` binary on your `PATH` — then just run `redstart …`.
 
 ## Playground
 
@@ -147,26 +146,36 @@ no server, no install. Build it locally with `./playground/build.sh`.
 
 ## Try it
 
+Once installed, it's just `redstart`:
+
 ```sh
-cargo run -p redstart-cli -- new my-subgraph
-cargo run -p redstart-cli -- build my-subgraph
-
-# a real-world subgraph: a faithful Redstart port of PaulieB14's Graph Horizon
-# indexer — 3 Arbitrum contracts, helpers, timeseries/aggregations. Ejects to
-# WASM unmodified; 7 native handler tests. See examples/horizon-indexer/README.md.
-cargo run -p redstart-cli -- test examples/horizon-indexer
-
-# or against the worked example (split across two modules):
-cargo run -p redstart-cli -- check examples/erc20
-cargo run -p redstart-cli -- build examples/erc20
-cargo run -p redstart-cli -- test examples/erc20
-cargo run -p redstart-cli -- fmt --check examples/erc20
-cargo run -p redstart-cli -- dev examples/erc20    # watch: check → build → test on save
-
-# ship it: redstart build → graph codegen → graph build → graph deploy
-cargo run -p redstart-cli -- deploy my-slug examples/erc20 --dry-run   # compile only, no network
-cargo run -p redstart-cli -- deploy my-slug examples/erc20             # to Subgraph Studio
+redstart new my-subgraph
+cd my-subgraph
+redstart dev                          # watch loop: check → build → test on save
+redstart build                        # emit schema.graphql + subgraph.yaml + mappings.ts
+redstart deploy my-slug --dry-run     # build → graph codegen → graph build (no network)
+redstart deploy my-slug               # …and graph deploy to Subgraph Studio
 ```
+
+Want to poke at the worked examples? Clone the repo and point `redstart` at them:
+
+```sh
+git clone https://github.com/lodestar-team/redstart && cd redstart
+
+# a real-world subgraph: a faithful port of PaulieB14's Graph Horizon indexer —
+# 3 Arbitrum contracts, helpers, timeseries/aggregations. Ejects to WASM
+# unmodified; 7 native handler tests. See examples/horizon-indexer/README.md.
+redstart test examples/horizon-indexer
+
+redstart check examples/erc20         # erc20, split across two modules
+redstart build examples/erc20
+redstart test  examples/erc20
+redstart fmt --check examples/erc20
+```
+
+> **Hacking on Redstart itself?** Skip the install and run it straight from the
+> checkout: swap `redstart` for `cargo run -p redstart-cli --`
+> (e.g. `cargo run -p redstart-cli -- check examples/erc20`).
 
 ## Project layout
 
