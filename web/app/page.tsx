@@ -55,14 +55,8 @@ export default function Home() {
       <section className="relative overflow-hidden border-b border-line">
         <div className="relative mx-auto max-w-6xl px-5 pb-16 pt-16 sm:pb-24 sm:pt-28">
           <Constellation className="pointer-events-none absolute right-0 top-6 hidden h-[420px] w-[420px] opacity-90 lg:block" />
-          <Reveal>
-            <span className="tag">
-              <Bird className="h-3.5 w-3.5" />
-              Stage 0 · public good for The Graph
-            </span>
-          </Reveal>
           <Reveal i={1}>
-            <h1 className="display mt-6 max-w-3xl text-4xl sm:text-6xl md:text-7xl">
+            <h1 className="display max-w-3xl text-4xl sm:text-6xl md:text-7xl">
               Write the subgraph once.
               <br />
               <span className="grad">Not three times.</span>
