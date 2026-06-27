@@ -706,6 +706,7 @@ fn check_block(
             }
             Stmt::Assign { target, value, .. } => {
                 check_assign_target(target, ctx, locals, file, diags);
+                warn_bigint_division_precision(target, value, ctx, locals, file, diags);
                 check_expr(target, ctx, locals, file, diags);
                 check_expr(value, ctx, locals, file, diags);
             }
@@ -1099,6 +1100,16 @@ fn check_expr(
                     }
                 }
             }
+            // Division by a literal zero is a fatal, deterministic sync halt
+            // (`attempted to divide … by zero`).
+            if is_division(*op) && is_zero_literal(rhs) {
+                diags.push(
+                    Diag::new(file, rhs.span(), "E090", "division by zero", "this is zero")
+                        .with_help(
+                            "a divide-by-zero halts the entire sync — guard the denominator (`if d != BigInt.zero { … }`) or use a value you know is non-zero",
+                        ),
+                );
+            }
             check_expr(lhs, ctx, locals, file, diags);
             check_expr(rhs, ctx, locals, file, diags);
         }
@@ -1193,6 +1204,71 @@ fn is_arithmetic(op: redstart_parser::ast::BinOp) -> bool {
         op,
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
     )
+}
+
+fn is_division(op: redstart_parser::ast::BinOp) -> bool {
+    use redstart_parser::ast::BinOp;
+    matches!(op, BinOp::Div | BinOp::Rem)
+}
+
+/// Whether `expr` is a statically-zero value: a `0` / `0.0` literal, or a
+/// `BigInt.zero()` / `BigDecimal.zero()` constant.
+fn is_zero_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::Int { raw, .. } | Expr::Decimal { raw, .. } => {
+            let digits = raw.replace('_', "");
+            !digits.is_empty() && digits.chars().all(|c| c == '0' || c == '.')
+        }
+        Expr::Call { callee, .. } => {
+            if let Expr::Field { base, field, .. } = callee.as_ref() {
+                field.name == "zero"
+                    && matches!(
+                        base.as_ref(),
+                        Expr::Path { segments, .. }
+                            if matches!(
+                                segments.last().map(|s| s.name.as_str()),
+                                Some("BigInt" | "BigDecimal")
+                            )
+                    )
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+/// W030: `BigInt / BigInt` truncates the fraction to an integer; assigning that
+/// to a `BigDecimal` field is the canonical Uniswap "price returns 0" bug.
+fn warn_bigint_division_precision(
+    target: &Expr,
+    value: &Expr,
+    ctx: &BodyCtx,
+    locals: &HashMap<String, RTy>,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
+    if let Expr::Binary { op, lhs, rhs, .. } = value {
+        if is_division(*op)
+            && infer(target, ctx, locals).is_bigdecimal()
+            && infer(lhs, ctx, locals).is_bigint()
+            && infer(rhs, ctx, locals).is_bigint()
+        {
+            diags.push(
+                Diag::new(
+                    file,
+                    value.span(),
+                    "W030",
+                    "BigInt division truncates before becoming a BigDecimal",
+                    "integer division drops the fraction",
+                )
+                .warning()
+                .with_help(
+                    "use `.divDecimal()` (or `.toBigDecimal()` the operands first) so the ratio keeps its fraction — otherwise e.g. a price computes to 0",
+                ),
+            );
+        }
+    }
 }
 
 // ---- inference (read-only; mirrors codegen's lowering view) ----

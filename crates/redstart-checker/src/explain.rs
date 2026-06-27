@@ -204,6 +204,20 @@ static EXPLANATIONS: &[Explanation] = &[
         fix: "Use `event.block.timestamp` for time; derive any 'random' value from on-chain data. A subgraph must index identically everywhere.",
     },
     Explanation {
+        code: "E090",
+        title: "division by zero",
+        summary: "Code divided by a value that is statically zero — a `0`/`0.0` literal or `BigInt.zero()`/`BigDecimal.zero()`.",
+        prevents: "A fatal, deterministic sync halt: graph-node aborts with `attempted to divide … by zero` and the subgraph stops.",
+        fix: "Guard the denominator (`if d != BigInt.zero { … }` / `match`), or divide by a value you know is non-zero.",
+    },
+    Explanation {
+        code: "W030",
+        title: "BigInt division loses precision",
+        summary: "A `BigInt / BigInt` result is assigned to a `BigDecimal` field — integer division truncates the fraction first.",
+        prevents: "The canonical Uniswap bug: a price like ETH/MKR computes to `0` instead of `~0.27`, because the division happened in integer space.",
+        fix: "Use `.divDecimal()`, or convert the operands with `.toBigDecimal()` before dividing, so the ratio keeps its fraction.",
+    },
+    Explanation {
         code: "W010",
         title: "call handler on a network without tracing",
         summary: "A `handler call …` targets a network whose nodes don't expose Parity-style call tracing (Arbitrum, Optimism, Base, Polygon, BNB, …).",

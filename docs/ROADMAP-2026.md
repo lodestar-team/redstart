@@ -108,7 +108,7 @@ with `load`.
 ### 3.3 ✅ Derived fields (`derived-field-guard`)
 Assigning to a derived field is rejected; reading one in a handler forces `.load()`.
 
-### 3.4 🔜 Division-by-zero (`division-guard`) — **HIGH**
+### 3.4 ✅ Division-by-zero (`division-guard`) — done (v0.8.0, E090)
 Divide-by-zero is a **fatal, deterministic sync halt** (`attempted to divide
 BigDecimal '86400' by zero`). Make `/` on `BigInt`/`BigDecimal` require a
 provably-non-zero denominator (a literal, or a value guarded by a preceding
@@ -116,7 +116,7 @@ provably-non-zero denominator (a literal, or a value guarded by a preceding
 *Refs:* [graph-node #5281](https://github.com/graphprotocol/graph-node/issues/5281) ·
 [linter](https://thegraph.com/docs/en/subgraphs/guides/subgraph-linter/)
 
-### 3.5 🔜 BigInt-division precision trap — **HIGH**
+### 3.5 ✅ BigInt-division precision trap — done (v0.8.0, W030)
 `BigInt / BigInt` truncates fractions to **zero** (the canonical Uniswap bug:
 ETH/MKR price returns `0` instead of `~0.27`). When a `BigInt` division result flows
 into a `BigDecimal` field, *require* `.divDecimal()` — or warn and offer the fix.
@@ -332,7 +332,7 @@ references for `factory` / `horizon-indexer` to widen the gate.
 3. `redstart new --from 0x<address>` (§5.4) — the adoption on-ramp
 
 **P1 — the headline differentiators (lever 1 + 2)**
-4. Division-guard + BigInt→Decimal precision (§3.4, §3.5)
+4. ✅ Division-guard (E090) + BigInt→Decimal precision (W030) (§3.4/3.5, v0.8.0)
 5. ✅ Determinism: forbid `Date.now`/`Math.random` (§3.7, E080, v0.4.0)
 6. Auto `startBlock` from deployment block (§4.1)
 7. Auto-declare `eth_calls` (§4.2)

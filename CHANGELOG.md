@@ -6,6 +6,20 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-27
+
+Division footguns — roadmap §3.4 / §3.5.
+
+### Added
+- **E090** — dividing by a statically-zero value (`/ 0`, `/ 0.0`,
+  `/ BigInt.zero()`, `/ BigDecimal.zero()`) is now a compile error. A divide-by-
+  zero is a *fatal, deterministic sync halt* (`attempted to divide … by zero`).
+- **W030** — assigning a `BigInt / BigInt` result to a `BigDecimal` field is
+  flagged: integer division truncates the fraction first (the canonical Uniswap
+  "price returns 0" bug). Use `.divDecimal()`. Integer division into integer
+  fields is unaffected (no false positives).
+- `redstart explain` covers both new codes.
+
 ## [0.7.0] - 2026-06-27
 
 The store-diff kill-gate is **GREEN**, and a deploy footgun is gone.

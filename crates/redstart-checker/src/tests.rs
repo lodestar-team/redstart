@@ -328,3 +328,53 @@ fn no_warning_for_eth_call_outside_loop() {
         "unexpected W020 outside a loop"
     );
 }
+
+#[test]
+fn rejects_division_by_zero_literal() {
+    assert_err_contains(
+        run(&with_handler("  let x = event.params.value / 0")),
+        "E090",
+    );
+}
+
+#[test]
+fn rejects_division_by_bigint_zero() {
+    assert_err_contains(
+        run(&with_handler(
+            "  let x = event.params.value / BigInt.zero()",
+        )),
+        "E090",
+    );
+}
+
+const PAIR_PREAMBLE: &str = r#"
+abi ERC20 from "./abis/ERC20.json"
+entity Pair { id: Id<Bytes> r0: BigInt r1: BigInt whole: BigInt price: BigDecimal }
+source Token {
+  abi: ERC20
+  network: mainnet
+  address: 0x1234567890abcdef1234567890abcdef12345678
+  startBlock: 1
+}
+"#;
+
+#[test]
+fn warns_bigint_division_into_bigdecimal() {
+    let src = format!(
+        "{PAIR_PREAMBLE}\nhandler on Token.Transfer(event) {{\n  let p = Pair.loadOrCreate(event.address, {{ r0: BigInt.zero, r1: BigInt.zero, whole: BigInt.zero, price: BigDecimal.zero }})\n  p.price = p.r0 / p.r1\n}}\n"
+    );
+    assert_warns(&src, "W030");
+}
+
+#[test]
+fn no_precision_warning_for_bigint_field() {
+    // BigInt / BigInt into a BigInt field is fine — no W030.
+    let src = format!(
+        "{PAIR_PREAMBLE}\nhandler on Token.Transfer(event) {{\n  let p = Pair.loadOrCreate(event.address, {{ r0: BigInt.zero, r1: BigInt.zero, whole: BigInt.zero, price: BigDecimal.zero }})\n  p.whole = p.r0 / p.r1\n}}\n"
+    );
+    let diags = diags_of(&src);
+    assert!(
+        !diags.iter().any(|d| d.code_short() == "W030"),
+        "unexpected W030"
+    );
+}
