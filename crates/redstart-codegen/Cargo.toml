@@ -10,6 +10,7 @@ description = "Generates schema.graphql, subgraph.yaml, and AssemblyScript mappi
 redstart-parser.workspace = true
 redstart-loader.workspace = true
 redstart-checker.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

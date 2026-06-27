@@ -6,6 +6,23 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-27
+
+The store-diff kill-gate is **GREEN**, and a deploy footgun is gone.
+
+### Added
+- **Store-diff conformance gate proven.** `conformance/fixtures/arb-erc20` (the
+  ARB token on Arbitrum One) deployed to a live graph-node alongside the
+  hand-written reference and produced a **byte-identical store** — 0 diffs across
+  10 Account + 13 Transfer entities at block 477,660,492. Indexing fidelity, the
+  roadmap's #1 risk, is no longer a hypothesis.
+
+### Fixed
+- **ABI normalisation on build.** Emitted ABIs now always carry `anonymous` on
+  event entries. graph-node *requires* it at deploy time (even though `graph
+  build` doesn't), so an ABI missing it caused a cryptic `graph deploy` failure.
+  Redstart now adds it automatically.
+
 ## [0.6.0] - 2026-06-27
 
 Performance lint: the "stuck at 3%" eth_call — roadmap §4.2.

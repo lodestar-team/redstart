@@ -57,11 +57,47 @@ impl Generated {
 
         for (file_name, src) in &self.abi_copies {
             if src.exists() {
-                std::fs::copy(src, out_dir.join("abis").join(file_name))?;
+                let dest = out_dir.join("abis").join(file_name);
+                match std::fs::read_to_string(src) {
+                    // Normalise the ABI so `graph deploy` accepts it: graph-node
+                    // requires every event to carry `anonymous`, which many ABIs
+                    // (and `graph build`) omit. Fall back to a verbatim copy if the
+                    // ABI isn't the JSON we expect.
+                    Ok(text) => match normalize_abi(&text) {
+                        Some(fixed) => std::fs::write(dest, fixed)?,
+                        None => {
+                            std::fs::copy(src, dest)?;
+                        }
+                    },
+                    Err(_) => {
+                        std::fs::copy(src, dest)?;
+                    }
+                }
             }
         }
         Ok(())
     }
+}
+
+/// Ensure every `event` entry in an ABI JSON array carries an `anonymous` field
+/// (defaulting to `false`). graph-node rejects ABIs without it at deploy time,
+/// even though `graph build` is happy. Returns `None` if the text isn't a JSON
+/// array (leave it untouched).
+fn normalize_abi(text: &str) -> Option<String> {
+    let mut value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let items = value.as_array_mut()?;
+    let mut changed = false;
+    for item in items {
+        if item.get("type").and_then(|t| t.as_str()) == Some("event") {
+            if let Some(obj) = item.as_object_mut() {
+                if !obj.contains_key("anonymous") {
+                    obj.insert("anonymous".into(), serde_json::Value::Bool(false));
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed.then(|| serde_json::to_string_pretty(&value).unwrap_or_else(|_| text.to_string()))
 }
 
 /// Generate all artifacts from a loaded module tree and its checked symbol table.
@@ -614,5 +650,34 @@ handler on Token.Transfer(event) {
             "got:\n{m}"
         );
         assert!(gen.warnings.is_empty(), "warnings: {:?}", gen.warnings);
+    }
+}
+
+#[cfg(test)]
+mod abi_norm_tests {
+    use super::normalize_abi;
+
+    #[test]
+    fn adds_anonymous_to_events_only() {
+        let abi = r#"[{"type":"event","name":"Transfer","inputs":[]},{"type":"function","name":"balanceOf","inputs":[],"outputs":[]}]"#;
+        let out = normalize_abi(abi).expect("should change");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr[0]["anonymous"], serde_json::Value::Bool(false));
+        assert!(
+            arr[1].get("anonymous").is_none(),
+            "functions don't get anonymous"
+        );
+    }
+
+    #[test]
+    fn leaves_complete_abi_untouched() {
+        let abi = r#"[{"type":"event","name":"T","anonymous":false,"inputs":[]}]"#;
+        assert!(normalize_abi(abi).is_none(), "no change -> None");
+    }
+
+    #[test]
+    fn non_json_is_left_alone() {
+        assert!(normalize_abi("not json").is_none());
     }
 }
