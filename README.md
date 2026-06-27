@@ -90,9 +90,10 @@ good in the lineage of Matchstick, not a venture bet.
 | `redstart fmt` — canonical, comment-preserving formatting (`--check` mode) | `redstart-cli` | ✅ working |
 | `redstart dev` — watch loop re-running check → build → test on every change | `redstart-cli` | ✅ working |
 | `redstart deploy` — build → `graph codegen` → `graph build` → `graph deploy` (Studio or self-hosted), with `--dry-run` | `redstart-cli` | ✅ working |
-| Tree-sitter grammar + highlight queries (Neovim/Helix/Zed/GitHub) | `tree-sitter-redstart` | ✅ grammar written |
+| Tree-sitter grammar + highlight queries — generated, parses every example with 0 errors | `tree-sitter-redstart` | ✅ working |
 | `redstart lsp` — language server: diagnostics, formatting, symbols, hover, go-to-def, completion | `redstart-lsp` | ✅ working |
 | VS Code extension (LSP client + TextMate highlighting) | `editors/vscode` | ✅ working |
+| Zed extension (tree-sitter highlighting + `redstart lsp`) | `editors/zed` | ✅ working |
 
 The AssemblyScript lowering is the whole bet: the **kill/pivot threshold** is a
 field-level store-diff against canonical subgraph deployments. The harness for it

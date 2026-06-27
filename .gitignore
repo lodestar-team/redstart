@@ -16,3 +16,6 @@
 # Node
 node_modules/
 *.vsix
+
+# Zed extension build
+/editors/zed/target/

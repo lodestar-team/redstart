@@ -146,7 +146,7 @@ module.exports = grammar({
       field('base', $.type_path), '<', sep1($._type, ','), '>',
     ),
 
-    type_path: $ => sep1($.type_identifier, '::'),
+    type_path: $ => sep1(alias($.identifier, $.type_identifier), '::'),
 
     // ---- statements ----
 
@@ -191,7 +191,9 @@ module.exports = grammar({
       field('target', $._expression), '=', field('value', $._expression), optional(';'),
     )),
 
-    return_statement: $ => seq('return', optional($._expression), optional(';')),
+    // `prec.right` resolves the optional-expression ambiguity (a `return` may or
+    // may not be followed by a value on the same line).
+    return_statement: $ => prec.right(seq('return', optional($._expression), optional(';'))),
 
     expression_statement: $ => seq($._expression, optional(';')),
 
@@ -281,7 +283,9 @@ module.exports = grammar({
     // ---- terminals ----
 
     identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
-    type_identifier: _ => /[A-Za-z_][A-Za-z0-9_]*/,
+    // `type_identifier` is the same token as `identifier`, surfaced under a
+    // distinct node name (via `alias`) only where a type is expected — so the
+    // `word` token stays unique, which tree-sitter requires.
 
     integer: _ => /[0-9][0-9_]*/,
     hex: _ => /0x[0-9a-fA-F]+/,
