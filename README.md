@@ -71,7 +71,14 @@ good in the lineage of Matchstick, not a venture bet.
 
 ## Status
 
-🚧 **Stage 0 — foundations.** Early but real and end-to-end.
+✅ **Stage 0 complete — kill-gate GREEN; now an optimising compiler (v0.10.0).**
+The unified language is real and end-to-end: a real subgraph is ported and
+deployed live to Subgraph Studio, the canonical `graph build` compiles our output
+unmodified, and the field-level store-diff proves byte-identical indexing against a
+hand-written reference (the project's #1 risk, retired). The frontier now is
+[Lever 2 — the optimising compiler](docs/ROADMAP-2026.md#4-pillar-performance--be-an-optimising-compiler):
+inferred `@entity(immutable)` and `prune: auto` ship today; Bytes-id inference,
+`@derivedFrom` array rewrites, and auto-`startBlock` are next.
 
 | Component | Crate | State |
 |---|---|---|
