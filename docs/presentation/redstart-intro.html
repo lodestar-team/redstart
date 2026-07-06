@@ -1,0 +1,1049 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Redstart · a language for authoring The Graph subgraphs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Redstart brand Â· "Cosmic / The-Graph-in-red" (from redstart-lang.com) */
+    --bg:#08080c;
+    --bg-2:#0d0d14;
+    --panel:#0a0a11;
+    --panel-2:#0d0d14;
+    --ink:#ededf2;        /* high emphasis */
+    --ink-2:#9a9aab;      /* muted body */
+    --ink-3:#65656f;      /* faint */
+    --ember:#ff3355;      /* the red Â· replaces The Graph's purple */
+    --ember-2:#ff5e76;    /* red, bright */
+    --orange:#ff7a45;     /* ember Â· the warm end of the gradient */
+    --teal:#5fc6e7;       /* cyan Â· the cool accent (brand type token) */
+    --green:#8fd98a;      /* pass / proven (brand string token) */
+    --line:rgba(255,255,255,.09);
+    --line-2:rgba(255,255,255,.05);
+    /* syntax */
+    --s-cm:#5f6472;
+    --s-kw:#ff5e76;
+    --s-ty:#5fc6e7;
+    --s-nu:#ff7a45;
+    --s-st:#8fd98a;
+    --display:"Geist","Geist Sans",system-ui,sans-serif;
+    --body:"Geist","Geist Sans",system-ui,"Helvetica Neue",sans-serif;
+    --mono:"Geist Mono",ui-monospace,"SF Mono",monospace;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--body);
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+
+  /* ── deck mechanics ────────────────────────────────────────── */
+  .deck{position:fixed;inset:0;overflow:hidden}
+  .track{display:flex;height:100%;width:100%;transition:transform .7s cubic-bezier(.66,0,.2,1)}
+  .slide{
+    flex:0 0 100%;height:100%;overflow-y:auto;overflow-x:hidden;
+    position:relative;
+    display:flex;flex-direction:column;justify-content:center;
+    padding:clamp(28px,6vh,72px) clamp(22px,6vw,92px);
+  }
+  .slide::-webkit-scrollbar{width:9px}
+  .slide::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:9px}
+  .wrap{width:100%;max-width:1140px;margin:0 auto}
+
+  /* ambient ember glow Â· the tail flash */
+  .slide::before{
+    content:"";position:absolute;z-index:0;pointer-events:none;
+    width:60vw;height:60vw;max-width:760px;max-height:760px;
+    right:-14vw;top:-16vw;border-radius:50%;
+    background:radial-gradient(circle at center, rgba(255,51,85,.14), rgba(255,51,85,0) 62%);
+  }
+  .slide.alt::before{right:auto;left:-16vw;top:auto;bottom:-18vw;
+    background:radial-gradient(circle at center, rgba(255,122,69,.12), rgba(255,122,69,0) 62%);}
+  .slide > *{position:relative;z-index:1}
+
+  /* reveal animation */
+  .reveal{opacity:0;transform:translateY(15px);transition:opacity .6s ease, transform .6s cubic-bezier(.5,0,.2,1);transition-delay:calc(var(--i,0)*75ms)}
+  .slide.is-active .reveal{opacity:1;transform:none}
+
+  /* ── type scale ────────────────────────────────────────────── */
+  .eyebrow{
+    font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ember);font-weight:500;display:flex;align-items:center;gap:12px;margin:0 0 22px;
+  }
+  .eyebrow .num{color:var(--ink-3)}
+  .eyebrow .rule{height:1px;flex:1;background:var(--line);max-width:60px}
+
+  h1.title{
+    font-family:var(--display);font-weight:700;
+    font-size:clamp(58px,12vw,150px);line-height:.92;letter-spacing:-.03em;
+    margin:0;color:var(--ink);
+  }
+  h2{
+    font-family:var(--display);font-weight:700;
+    font-size:clamp(28px,4.6vw,52px);line-height:1.04;letter-spacing:-.02em;
+    margin:0 0 20px;color:var(--ink);max-width:18ch;
+  }
+  h2 .em{color:var(--ember)}
+  h2 .te{color:var(--teal)}
+  .lede{font-size:clamp(16px,2vw,21px);line-height:1.5;color:var(--ink-2);max-width:60ch;margin:0 0 6px}
+  .lede strong{color:var(--ink);font-weight:600}
+  .small{font-size:13px;color:var(--ink-3);font-family:var(--mono);line-height:1.6}
+
+  /* ── code ──────────────────────────────────────────────────── */
+  .code{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    font-family:var(--mono);font-size:clamp(11.5px,1.25vw,14px);line-height:1.6;
+    overflow:auto;
+  }
+  .code .bar{
+    display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line-2);
+    font-size:11px;color:var(--ink-3);letter-spacing:.04em;
+  }
+  .code .bar .dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.16)}
+  .code .bar .fname{margin-left:4px}
+  .code .bar .tag{margin-left:auto;color:var(--ember);font-weight:500}
+  .code .bar .tag.t{color:var(--teal)}
+  pre{margin:0;padding:16px 18px;white-space:pre;tab-size:2}
+  code{font-family:var(--mono)}
+  .cm{color:var(--s-cm);font-style:italic}
+  .kw{color:var(--s-kw)}
+  .ty{color:var(--s-ty)}
+  .nu{color:var(--s-nu)}
+  .st{color:var(--s-st)}
+
+  /* ── building blocks ───────────────────────────────────────── */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:start}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .col-side{display:grid;grid-template-columns:1.05fr 1fr;gap:clamp(26px,5vw,64px);align-items:center}
+
+  .stat{border-left:2px solid var(--ember);padding:2px 0 2px 16px}
+  .stat .big{font-family:var(--mono);font-weight:700;font-size:clamp(26px,4vw,40px);color:var(--ink);line-height:1}
+  .stat .lab{font-size:13px;color:var(--ink-2);margin-top:7px;line-height:1.45}
+  .stat.te{border-color:var(--teal)}
+  .band-label{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:2px 0 13px}
+  .band-label b{font-weight:700}
+
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));border:1px solid var(--line);border-radius:14px;padding:20px 20px 18px;backdrop-filter:blur(8px)}
+  .card h3{font-family:var(--display);font-weight:500;font-size:16px;margin:0 0 8px;color:var(--ink);letter-spacing:-.01em}
+  .card p{margin:0;font-size:14px;line-height:1.55;color:var(--ink-2)}
+  .card .ic{font-family:var(--mono);color:var(--ember);font-size:12px;letter-spacing:.1em;display:block;margin-bottom:11px}
+  .card.te .ic{color:var(--teal)}
+
+  ul.clean{list-style:none;margin:0;padding:0}
+  ul.clean li{position:relative;padding:11px 0 11px 26px;border-bottom:1px solid var(--line-2);font-size:15px;line-height:1.5;color:var(--ink-2)}
+  ul.clean li:last-child{border-bottom:0}
+  ul.clean li::before{content:"";position:absolute;left:2px;top:18px;width:8px;height:8px;border-radius:50%;background:var(--ember)}
+  ul.clean li b{color:var(--ink);font-weight:600}
+  ul.clean.te li::before{background:var(--teal)}
+
+  /* footgun table */
+  .ftable{width:100%;border-collapse:collapse;font-size:clamp(12px,1.4vw,14.5px)}
+  .ftable th{text-align:left;font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:0 14px 12px;border-bottom:1px solid var(--line)}
+  .ftable td{padding:13px 14px;border-bottom:1px solid var(--line-2);vertical-align:top;color:var(--ink-2);line-height:1.45}
+  .ftable tr:last-child td{border-bottom:0}
+  .ftable .code-cell{font-family:var(--mono);color:var(--ember);font-weight:500;white-space:nowrap}
+  .ftable .becomes{font-family:var(--mono);color:var(--teal);font-size:.92em;white-space:nowrap}
+  .ftable td b{color:var(--ink);font-weight:600}
+  .ftable tr.warn .code-cell{color:var(--s-nu)}
+
+  /* transpile / hero */
+  .transpile{display:grid;grid-template-columns:1fr auto 1fr;gap:0;align-items:stretch;margin-top:6px}
+  .transpile .pane{min-width:0}
+  .seam{display:flex;flex-direction:column;align-items:center;justify-content:center;width:74px;position:relative}
+  .seam .line{width:1px;flex:1;background:linear-gradient(var(--line),var(--ember),var(--line))}
+  .seam .badge{
+    font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:#fff;
+    background:linear-gradient(120deg,var(--ember),var(--orange));border-radius:20px;padding:6px 10px;white-space:nowrap;
+    transform:rotate(90deg);margin:10px 0;font-weight:700;box-shadow:0 6px 22px -6px rgba(255,51,85,.6);
+  }
+  .xforms{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:24px}
+  .xform{background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.45;color:var(--ink-2)}
+  .xform .map{font-family:var(--mono);font-size:12px;margin-bottom:6px}
+  .xform .map .from{color:var(--ember)}
+  .xform .map .arr{color:var(--ink-3);margin:0 6px}
+  .xform .map .to{color:var(--teal)}
+  .xform b{color:var(--ink);font-weight:600}
+
+  .pipeline{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-family:var(--mono);font-size:clamp(12px,1.5vw,15px);margin:4px 0 0}
+  .pipeline .step{padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:var(--bg-2);color:var(--ink)}
+  .pipeline .step.rs{border-color:var(--ember);color:var(--ember-2)}
+  .pipeline .sep{color:var(--ink-3)}
+
+  .gate{display:flex;align-items:center;gap:14px;background:rgba(143,217,138,.07);border:1px solid rgba(143,217,138,.30);border-radius:12px;padding:18px 22px;margin-top:6px}
+  .gate .led{width:11px;height:11px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(143,217,138,.16),0 0 14px rgba(143,217,138,.5);flex:0 0 auto}
+  .gate .t1{font-family:var(--mono);font-size:13px;color:var(--green);font-weight:700;letter-spacing:.06em}
+  .gate .t2{font-size:14px;color:var(--ink-2);margin-top:3px;line-height:1.45}
+  .gate .t2 b{color:var(--ink);font-weight:600}
+
+  .thesis{font-family:var(--display);font-weight:500;font-size:clamp(18px,2.4vw,27px);line-height:1.35;color:var(--ink);letter-spacing:-.01em;border-left:3px solid var(--ember);padding-left:22px;margin-top:4px;max-width:30ch}
+  .thesis .em{color:var(--ember)}
+
+  .tag-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .pill{font-family:var(--mono);font-size:12px;color:var(--ink-2);border:1px solid var(--line);border-radius:20px;padding:6px 13px;background:var(--bg-2)}
+  .pill b{color:var(--ink)}
+
+  .brand{display:flex;align-items:center;gap:18px;margin-bottom:30px}
+  .mark{flex:0 0 auto}
+  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px;align-items:center}
+  .cta code{font-family:var(--mono);font-size:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:11px 15px;color:var(--ink)}
+  .cta code .pr{color:var(--ember)}
+  .cta .or{color:var(--ink-3);font-size:13px}
+  .links{font-family:var(--mono);font-size:13px;color:var(--ink-3);margin-top:18px;line-height:1.8}
+  .links a{color:var(--ember-2);text-decoration:none;border-bottom:1px solid rgba(255,94,118,.32)}
+
+  .credit{font-size:12.5px;color:var(--ink-3);line-height:1.6;margin-top:14px}
+  .credit a{color:var(--teal);text-decoration:none}
+
+  /* ── chrome: nav, dots, progress ───────────────────────────── */
+  .progress{position:fixed;top:0;left:0;height:2px;background:var(--ember);z-index:40;transition:width .7s cubic-bezier(.66,0,.2,1);box-shadow:0 0 8px rgba(255,51,85,.55)}
+  .chrome{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;align-items:center;justify-content:space-between;padding:16px clamp(20px,5vw,40px);pointer-events:none}
+  .counter{font-family:var(--mono);font-size:12px;color:var(--ink-3);pointer-events:auto}
+  .counter b{color:var(--ink)}
+  .dots{display:flex;gap:9px;pointer-events:auto}
+  .dots button{width:8px;height:8px;border-radius:50%;border:0;padding:0;background:rgba(255,255,255,.22);cursor:pointer;transition:all .25s}
+  .dots button:hover{background:rgba(255,255,255,.5)}
+  .dots button[aria-current="true"]{background:var(--ember);width:22px;border-radius:5px}
+  .arrows{display:flex;gap:8px;pointer-events:auto}
+  .arrows button{
+    width:38px;height:38px;border-radius:9px;border:1px solid var(--line);background:rgba(20,24,30,.7);
+    color:var(--ink);cursor:pointer;font-size:17px;display:grid;place-items:center;transition:all .2s;backdrop-filter:blur(6px);
+  }
+  .arrows button:hover:not(:disabled){border-color:var(--ember);color:var(--ember)}
+  .arrows button:disabled{opacity:.3;cursor:default}
+  .hint{position:fixed;top:18px;right:clamp(20px,5vw,40px);z-index:30;font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.05em;opacity:.7;transition:opacity .4s}
+  .hint.gone{opacity:0}
+
+  :focus-visible{outline:2px solid var(--ember);outline-offset:3px;border-radius:4px}
+
+  /* ── responsive ────────────────────────────────────────────── */
+  @media (max-width:860px){
+    .grid2,.grid3,.col-side{grid-template-columns:1fr;gap:18px}
+    .transpile{grid-template-columns:1fr}
+    .seam{flex-direction:row;width:auto;height:54px;gap:10px}
+    .seam .line{width:auto;height:1px;flex:1;background:linear-gradient(90deg,var(--line),var(--ember),var(--line))}
+    .seam .badge{transform:none;margin:0}
+    .xforms{grid-template-columns:1fr}
+    h2{max-width:none}
+    .thesis,.lede{max-width:none}
+    .hint{display:none}
+  }
+  @media (max-width:520px){
+    .ftable th:nth-child(3),.ftable td:nth-child(3){display:none}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .track{transition:none}
+    .reveal{transition:none;opacity:1;transform:none}
+    .progress{transition:none}
+    .slide::before{display:none}
+  }
+  /* ── journey: the graveyard ledger ─────────────────────────── */
+  .epigraph{font-family:var(--display);font-weight:500;font-size:clamp(16px,2.1vw,23px);line-height:1.42;color:var(--ink);border-left:3px solid var(--ember);padding-left:20px;margin:0 0 24px;max-width:60ch}
+  .epigraph .who{display:block;font-family:var(--body);font-size:14px;color:var(--ink-3);line-height:1.5;margin-top:11px;font-weight:400}
+  .ledger{margin:4px 0 0}
+  .ledger .row{display:grid;grid-template-columns:auto 1fr;gap:18px;padding:13px 0;border-bottom:1px solid var(--line-2)}
+  .ledger .row:last-child{border-bottom:0}
+  .ledger .node{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ember);width:30px;height:30px;border:1px solid var(--line);border-radius:50%;display:grid;place-items:center;background:var(--bg-2)}
+  .ledger .name{font-family:var(--mono);color:var(--ink);font-weight:700;font-size:15px}
+  .ledger .strat{color:var(--ink-2);font-size:15px}
+  .ledger .what{display:block;margin-top:5px;font-size:13.5px;line-height:1.5;color:var(--ink-2)}
+  .ledger .what .verdict{color:var(--ember-2)}
+  .ledger .what code{font-family:var(--mono);color:var(--ink)}
+  .gv-foot{margin-top:20px;font-family:var(--display);font-weight:500;font-size:clamp(15px,2vw,21px);color:var(--ink);line-height:1.3}
+  .gv-foot .em{color:var(--ember)}
+
+  /* ── journey: the turn ─────────────────────────────────────── */
+  .turn-list{list-style:none;margin:0 0 24px;padding:0;display:grid;gap:11px}
+  .turn-list li{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:baseline;font-size:clamp(15px,2vw,20px);color:var(--ink-2)}
+  .turn-list .x{color:var(--ember);font-family:var(--mono);font-weight:700}
+  .turn-list .ref{font-family:var(--mono);font-size:12px;color:var(--ink-3);white-space:nowrap}
+  .turn-stmt{font-family:var(--display);font-weight:700;font-size:clamp(22px,3.6vw,40px);line-height:1.1;letter-spacing:-.02em;color:var(--ink);max-width:20ch;margin:0}
+  .turn-stmt .em{color:var(--ember)}
+  .tech-note{font-family:var(--mono);font-size:13px;line-height:1.7;color:var(--ink-2);background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--teal);border-radius:10px;padding:16px 18px;margin-top:22px}
+  .tech-note b{color:var(--teal)}
+  .tech-note code{color:var(--ink)}
+
+  /* ── brand: gradient text + cosmic starfield ───────────────── */
+  .title.grad,.grad{
+    background:linear-gradient(110deg,var(--ember-2),var(--orange));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  ::selection{background:rgba(255,51,85,.28);color:#fff}
+  .cosmos{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .cosmos .star{position:absolute;border-radius:50%;background:#fff}
+  .cosmos .star.r{background:var(--ember-2)}
+  .cosmos .glow{position:absolute;border-radius:50%;filter:blur(60px);opacity:.5}
+  @keyframes twinkle{0%,100%{opacity:var(--lo,.2)}50%{opacity:var(--hi,.85)}}
+  @media (prefers-reduced-motion:reduce){ .cosmos .star{animation:none!important} }
+
+  /* ── library vs compiler capability lists ──────────────────── */
+  .caps{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:9px}
+  .caps li{display:grid;grid-template-columns:auto 1fr;gap:11px;font-size:13.5px;line-height:1.46;color:var(--ink-2)}
+  .caps .m{font-family:var(--mono);font-weight:700;font-size:13px;line-height:1.5}
+  .caps.no .m{color:var(--ink-3)}
+  .caps.yes .m{color:var(--teal)}
+  .caps li b{color:var(--ink);font-weight:600}
+  .caps li code{font-family:var(--mono);color:var(--ink)}
+
+</style>
+</head>
+<body>
+<div class="cosmos" id="cosmos" aria-hidden="true"></div>
+<div class="progress" id="progress"></div>
+<div class="hint" id="hint">← → to navigate</div>
+
+<div class="deck">
+  <div class="track" id="track">
+
+    <!-- 0 · TITLE ───────────────────────────────────────────── -->
+    <section class="slide is-active">
+      <div class="wrap">
+        <div class="brand reveal" style="--i:0">
+          <svg class="mark" width="54" height="54" viewBox="0 0 32 32" aria-hidden="true" style="filter:drop-shadow(0 0 10px rgba(255,51,85,.5))">
+            <defs>
+              <linearGradient id="birdGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#ff5e76"/>
+                <stop offset="1" stop-color="#ff7a45"/>
+              </linearGradient>
+            </defs>
+            <path d="M16 17c-3.3 0-6.6-1.9-9-5-1-1.3-2.4-2.2-4-2.4 1.9-1.2 4-1 5.8.1 1.7 1 3.4 2 5.4 2.2-1.4-1.2-2.2-2.8-2.3-4.7 1.1 1.2 2.3 1.9 3.6 2.1.4-2.2 1.6-4 3.5-5.3-.2 1.3 0 2.5.6 3.6.6-1.1 1.5-2 2.7-2.6-.2 1.1-.1 2.1.3 3.1 1.1-.9 2.4-1.4 3.9-1.4-1 .8-1.6 1.8-1.8 3 1.6-.3 3.2 0 4.8 1-1.7.1-3 .9-4 2.3-2.3 3.1-5.6 5-9 5z" fill="url(#birdGrad)"/>
+            <path d="M16 17c-1.1 1.9-2.7 3.2-4.8 3.9 1.3-1.6 2-3.2 2.2-4.9 1 .6 1.8.9 2.6 1z" fill="#ff7a45"/>
+          </svg>
+          <span class="small" style="font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-2)">Lodestar&nbsp;Team&nbsp;·&nbsp;Intro</span>
+        </div>
+        <h1 class="title grad reveal" style="--i:1">Redstart</h1>
+        <p class="lede reveal" style="--i:2;font-size:clamp(18px,2.6vw,26px);color:var(--ink);margin-top:24px;max-width:24ch">
+          A language for authoring <strong>The Graph</strong> subgraphs.
+        </p>
+        <p class="thesis reveal" style="--i:3;margin-top:30px">
+          AssemblyScript is a general-purpose language of <span class="em">questionable quality</span>. Redstart is a DSL whose compiler knows it's building a&nbsp;<span class="em">Subgraph</span>.
+        </p>
+      </div>
+    </section>
+
+    <!-- 1 · THE PROBLEM ─────────────────────────────────────── -->
+    <section class="slide alt">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">01</span><span class="rule"></span> The need</p>
+        <h2 class="reveal" style="--i:1">Today a subgraph is three files held together by <span class="em">string&nbsp;matching</span>.</h2>
+        <p class="lede reveal" style="--i:2">
+          A schema, a manifest, and AssemblyScript mappings: three loosely-coupled artifacts, stitched together by stringly-typed names and a manual <code style="font-family:var(--mono);color:var(--ink)">graph&nbsp;codegen</code> step.
+        </p>
+
+        <div class="grid3" style="margin-top:30px">
+          <div class="code reveal" style="--i:3">
+            <div class="bar"><span class="dot"></span><span class="fname">schema.graphql</span></div>
+<pre><code data-lang="gql">type <span class="ty">Transfer</span> @entity {
+  id: <span class="ty">Bytes</span>!
+  value: <span class="ty">BigInt</span>!
+}</code></pre>
+          </div>
+          <div class="code reveal" style="--i:4">
+            <div class="bar"><span class="dot"></span><span class="fname">subgraph.yaml</span></div>
+<pre><code data-lang="yaml">eventHandlers:
+  - event: <span class="st">Transfer(...)</span>
+    handler: <span class="st">handleTransfer</span>
+entities:
+  - <span class="st">Transfer</span></code></pre>
+          </div>
+          <div class="code reveal" style="--i:5">
+            <div class="bar"><span class="dot"></span><span class="fname">mappings.ts</span></div>
+<pre><code data-lang="ts">export function <span class="ty">handleTransfer</span>(
+  e: <span class="ty">TransferEvent</span>
+): void {
+  let t = new <span class="ty">Transfer</span>(id)
+}</code></pre>
+          </div>
+        </div>
+
+        <p class="lede reveal" style="--i:6;margin-top:28px;color:var(--ink)">
+          <code style="font-family:var(--mono);color:var(--ink)">graph build</code> runs the AssemblyScript compiler, so <em style="color:var(--ink)">type</em> errors against the generated classes are caught. The rest isn't. Forget a <code style="font-family:var(--mono);color:var(--ember)">.save()</code> and the entity silently never persists. Let a handler's signature drift from the chain and it just never fires. Leave a required field unset and it fails at <em style="color:var(--ink)">deploy</em>, not at build. The failure you remember from AssemblyScript is rarely the compile error. It's the green build that dies three hours into a sync, on a field you'd stopped thinking about.
+        </p>
+      </div>
+    </section>
+
+    <!-- 2 · ASSEMBLYSCRIPT THE LANGUAGE ─────────────────────── -->
+    <section class="slide alt">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">02</span><span class="rule"></span> The language</p>
+        <h2 class="reveal" style="--i:1">AssemblyScript looks like TypeScript. <span class="em">It isn't.</span></h2>
+        <p class="lede reveal" style="--i:2">
+          It's a TypeScript-<em style="color:var(--ink)">like</em> subset compiled to WebAssembly, with its own compiler and garbage collector. The syntax is familiar, so you bring your TypeScript instincts. They turn out wrong in exactly the places that cost you a sync.
+        </p>
+
+        <div class="grid2" style="margin-top:22px;align-items:start">
+          <div class="code reveal" style="--i:3">
+            <div class="bar"><span class="dot"></span><span class="fname">the nullability hole</span><span class="tag">documented</span></div>
+<pre><code data-lang="ts"><span class="cm">// total: a loaded entity, amount is a nullable field</span>
+<span class="kw">let</span> amt = total.amount   <span class="cm">// amt: BigInt | null</span>
+
+amt          + ONE_BI    <span class="cm">// </span><span class="st">✓</span><span class="cm"> compile error: nullable local, caught</span>
+total.amount + ONE_BI    <span class="cm">// </span><span class="kw">✗</span><span class="cm"> compiles clean: nullable property, missed</span></code></pre>
+          </div>
+          <div>
+            <p class="lede reveal" style="--i:4;font-size:15px;margin-bottom:14px">
+              AssemblyScript narrows nullability for <b style="color:var(--ink)">locals</b>, but not for <b style="color:var(--ink)">property accesses</b>, so the two identical sums above compile differently. The Graph's own migration guide tells you to hand-write the null check, <em style="color:var(--ink)">because the compiler won't</em>.
+            </p>
+            <ul class="clean reveal" style="--i:5">
+              <li><b>Uninitialised reads compile, then crash.</b> Touch a field that was never set and you get a clean build and a dead sync.</li>
+              <li><b>A bare-bones standard library.</b> There's no <code style="font-family:var(--mono);color:var(--ink)">Date</code> type, so you hand-roll timestamp maths, and ordinary web3 libraries don't compile.</li>
+              <li><b>Semantics drift between releases.</b> <code style="font-family:var(--mono);color:var(--ink)">**</code> silently switched from float to integer results, variable shadowing was removed, and nullability changed from one version to the next.</li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="gv-foot reveal" style="--i:6">The failures that matter compile clean and only surface at runtime. <span class="em">That's the problem.</span></p>
+      </div>
+    </section>
+
+    <!-- 3 · THE FOOTGUNS ────────────────────────────────────── -->
+    <section class="slide">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">03</span><span class="rule"></span> Why a linter isn't enough</p>
+        <h2 class="reveal" style="--i:1">AssemblyScript can't catch a bug it <span class="em">doesn't understand</span>.</h2>
+        <p class="lede reveal" style="--i:2">
+          It has no concept of an entity, a <code style="font-family:var(--mono);color:var(--ink)">.save()</code>, a derived field, or a reverted <code style="font-family:var(--mono);color:var(--ink)">eth_call</code>. So whole classes of subgraph bug are invisible to it. Redstart makes them <strong>unrepresentable</strong>: a compile error, or absent from the grammar entirely.
+        </p>
+
+        <div class="code reveal" style="--i:3;background:transparent;border:0;margin-top:26px">
+        <table class="ftable">
+          <thead><tr><th style="width:74px">Code</th><th>The footgun it makes impossible</th><th style="width:38%">In Redstart, it becomes</th></tr></thead>
+          <tbody>
+            <tr><td class="code-cell">E062</td><td>A <b>null dereference</b> that aborts the handler three hours into a sync, because <code style="font-family:var(--mono)">load()</code> can return nothing.</td><td class="becomes">→ must <span style="color:var(--s-kw)">match</span> the Option</td></tr>
+            <tr><td class="code-cell">E061</td><td>Arithmetic on a nullable property compiles <b>silently</b>, then crashes mid-sync, because AS's null-check misses property accesses (its own docs say so).</td><td class="becomes">→ unwrap the Option first</td></tr>
+            <tr><td class="code-cell">E060</td><td>A <b>reverted call</b> silently aborting the handler, a Proof-of-Indexing hazard.</td><td class="becomes">→ <span style="color:var(--s-kw)">match</span> Ok / Err</td></tr>
+            <tr><td class="code-cell">E051</td><td>A missing non-nullable field → graph-node's <code style="font-family:var(--mono)">missing value</code> at deploy.</td><td class="becomes">→ init at creation</td></tr>
+            <tr><td class="code-cell">E090</td><td>A <b>divide-by-zero</b>, a fatal deterministic sync halt.</td><td class="becomes">→ guard the denominator</td></tr>
+            <tr><td class="code-cell">E080</td><td><code style="font-family:var(--mono)">Date.now</code> / <code style="font-family:var(--mono)">Math.random</code> → <b>non-determinism that diverges PoI</b> across indexers. A slashing risk.</td><td class="becomes">→ use block.timestamp</td></tr>
+            <tr class="warn"><td class="code-cell">W030</td><td>The canonical <b>Uniswap "price = 0" bug</b>: <code style="font-family:var(--mono)">BigInt / BigInt</code> truncates before it reaches a <code style="font-family:var(--mono)">BigDecimal</code>.</td><td class="becomes">→ lint: use divDecimal()</td></tr>
+            <tr class="warn"><td class="code-cell">W020</td><td>The classic <b>"stuck at 3%"</b> sync: an <code style="font-family:var(--mono)">eth_call</code> inside a loop, one blocking RPC per iteration.</td><td class="becomes">→ lint: hoist the call</td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <div class="reveal" style="--i:4;margin-top:22px">
+          <p class="small" style="line-height:1.6;margin:0 0 11px">The Graph's own <b style="color:var(--ink)">Subgraph Linter</b> already names these eight. Its docs describe them as compiling fine, then crashing at runtime:</p>
+          <div class="tag-row">
+            <span class="pill">entity-overwrite</span>
+            <span class="pill">unexpected-null</span>
+            <span class="pill">unchecked-load</span>
+            <span class="pill">unchecked-nonnull</span>
+            <span class="pill">division-guard</span>
+            <span class="pill">derived-field-guard</span>
+            <span class="pill">helper-return-contract</span>
+            <span class="pill">undeclared-eth-call</span>
+          </div>
+        </div>
+
+        <p class="small reveal" style="--i:5;margin-top:18px;line-height:1.7">
+          But a linter is a separate pass you can suppress or skip; the code compiles and ships regardless. Redstart turns the same footguns into <span style="color:var(--ember)">compile errors or absent grammar</span>, not findings you can ignore. <span style="color:var(--ember)">30 codes, and counting.</span>
+        </p>
+      </div>
+    </section>
+
+    <!-- 4 · THE GRAVEYARD ──────────────────────────────────── -->
+    <section class="slide">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">04</span><span class="rule"></span> The graveyard</p>
+        <h2 class="reveal" style="--i:1">I've tried to leave AssemblyScript <span class="em">four times</span>.</h2>
+        <p class="epigraph reveal" style="--i:2">
+          "I built Matchstick in 2021, the testing framework you run when you type <code style="font-family:var(--mono)">graph test</code>. I've been trying to get off AssemblyScript ever since."
+          <span class="who">Building it meant learning AssemblyScript's memory model by heart, the exact monster that would eat the first escape attempt.</span>
+        </p>
+        <div class="ledger reveal" style="--i:3">
+          <div class="row">
+            <div class="node">01</div>
+            <div>
+              <span class="name">yogurt</span> <span class="strat">· fake it from outside.</span>
+              <span class="what">Pure Rust, emulating the AS memory model at the binary level. The output side worked, but reading event params back <em>out</em> of graph-node's AS-formatted memory was unfakeable from the guest side. <span class="verdict">Archived after 66 deploy iterations.</span></span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="node">02</div>
+            <div>
+              <span class="name">a native ABI</span> <span class="strat">· change graph-node (PR #6462).</span>
+              <span class="what">A parallel Rust ABI, ~1,450 lines, benchmarked at ~617k Transfer events/sec. The maintainers said no, and they were right. <span class="verdict">A second runtime is a permanent second surface. The maintenance burden <em>was</em> the product.</span></span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="node">03</div>
+            <div>
+              <span class="name">Graphite</span> <span class="strat">· become AssemblyScript.</span>
+              <span class="what">Reimplemented the AS runtime in Rust; shipped ERC-20 + ERC-721 live on Arbitrum One. <span class="verdict">But now I own a byte-for-byte runtime forgery, in lockstep with <code>asc</code>, forever.</span></span>
+            </div>
+          </div>
+          <div class="row">
+            <div class="node">04</div>
+            <div>
+              <span class="name">liminal</span> <span class="strat">· leave subgraphs entirely.</span>
+              <span class="what">A WASIp2 component runtime, a third lane beside Subgraphs and Substreams. Real, but not a subgraph: no Proof-of-Indexing, no GraphQL on the network. <span class="verdict">Escape by emigration.</span></span>
+            </div>
+          </div>
+        </div>
+        <p class="gv-foot reveal" style="--i:4">Every one <span class="em">fought</span> the runtime, or <span class="em">fled</span> it. The runtime was never the enemy.</p>
+      </div>
+    </section>
+
+    <!-- 5 · THE TURN ────────────────────────────────────────── -->
+    <section class="slide alt">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">05</span><span class="rule"></span> The realization</p>
+        <h2 class="reveal" style="--i:1">Stop fighting the runtime.</h2>
+        <div class="grid2" style="align-items:start;gap:clamp(28px,5vw,60px);margin-top:6px">
+          <div>
+            <ul class="turn-list reveal" style="--i:2">
+              <li><span class="x">&#10005;</span><span>Don't fake it from outside</span><span class="ref">yogurt</span></li>
+              <li><span class="x">&#10005;</span><span>Don't patch the protocol</span><span class="ref">native ABI</span></li>
+              <li><span class="x">&#10005;</span><span>Don't reimplement the runtime</span><span class="ref">Graphite</span></li>
+              <li><span class="x">&#10005;</span><span>Don't flee the paradigm</span><span class="ref">liminal</span></li>
+            </ul>
+            <p class="turn-stmt reveal" style="--i:3">Replace the part you <span class="em">actually hate</span>: writing it.</p>
+          </div>
+          <div>
+            <p class="lede reveal" style="--i:3">The AssemblyScript <em style="color:var(--ink)">compiler</em> is fine. It's battle-tested, maintained by people who aren't me, and the canonical path the whole network already trusts. What hurts is writing AS <strong>by hand</strong>, across three files that don't check each other.</p>
+            <div class="tech-note reveal" style="--i:4">
+              graph-node doesn't load a <b>language</b>. It checks the manifest says <code>wasm/assemblyscript</code>, reads <code>rtId</code>&nbsp;/&nbsp;<code>rtSize</code> off each object's header, and matches host functions by name.<br><br>A memory layout, an allocator protocol, a string encoding: <b>that's all it speaks.</b> So let the official compiler emit it, and replace only the writing.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 · WHY A COMPILER, NOT A LIBRARY ───────────────────── -->
+    <section class="slide">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">06</span><span class="rule"></span> Library vs compiler</p>
+        <h2 class="reveal" style="--i:1">A library can't out-think the language it <span class="em">lives in</span>.</h2>
+        <p class="lede reveal" style="--i:2">
+          graph-node doesn't run <em style="color:var(--ink)">WASM</em>. It runs AssemblyScript-shaped WASM. And <code style="font-family:var(--mono);color:var(--ink)">graph-ts</code> is just a library <em style="color:var(--ink)">inside</em> that language. Neither lets you escape what AssemblyScript can express. A compiler does.
+        </p>
+
+        <div class="tech-note reveal" style="--i:3">
+          Not all WASM is the same. Compile Rust, Go, or C to <code>wasm32</code> and graph-node can't read a single entity out of it. It reads AssemblyScript's object headers (<code>rtId</code>&nbsp;/&nbsp;<code>rtSize</code>) and resolves host functions <b>by exact name</b>. The WASM target is fungible; <b>the ABI is not.</b> That coupling is why you can't just bring another language, and why the fix has to <em style="color:var(--ink)">produce</em> AssemblyScript, not replace it.
+        </div>
+
+        <div class="grid2" style="margin-top:24px">
+          <div class="card reveal" style="--i:4">
+            <span class="ic" style="color:var(--ink-3)">GRAPH-TS &middot; A LIBRARY, INSIDE ASSEMBLYSCRIPT</span>
+            <h3>Hands you types and bindings, then stops.</h3>
+            <ul class="caps no">
+              <li><span class="m">&#10005;</span><span>The language's sharp edges are still yours: nullable values that compile silently then crash, uninitialised reads, no <code>Date</code> type.</span></li>
+              <li><span class="m">&#10005;</span><span>A forgotten <code>.save()</code> is still a silent bug that surfaces three hours into a sync.</span></li>
+              <li><span class="m">&#10005;</span><span>Codegen type-checks what you <em>reference</em>, but a drifted handler signature still never fires, and a missing required field still fails at deploy.</span></li>
+              <li><span class="m">&#10005;</span><span>Can't infer immutability, optimise the output, or <b>prove</b> any of it.</span></li>
+            </ul>
+          </div>
+          <div class="card reveal" style="--i:5">
+            <span class="ic">REDSTART &middot; A COMPILER, ABOVE ASSEMBLYSCRIPT</span>
+            <h3>Its own front-end. AssemblyScript is just the backend.</h3>
+            <ul class="caps yes">
+              <li><span class="m">&#10003;</span><span>Footguns are <b>ungrammatical</b>: no <code>null</code>, no silent nullable arithmetic, no unsaved entity.</span></li>
+              <li><span class="m">&#10003;</span><span>One checked program: schema &#8596; manifest &#8596; handlers, cross-validated.</span></li>
+              <li><span class="m">&#10003;</span><span>Whole-program analysis infers immutability and applies best-practice for you.</span></li>
+              <li><span class="m">&#10003;</span><span>Store-diffs the result <b>byte-identical</b>: near-perfect AS, and <em style="color:var(--ink)">sure</em> of it.</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="gv-foot reveal" style="--i:6">A library inherits AssemblyScript's limits. A compiler makes AssemblyScript an <span class="em">implementation detail</span>.</p>
+      </div>
+    </section>
+
+    <!-- 7 · WHAT IT DOES ────────────────────────────────────── -->
+    <section class="slide alt">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">07</span><span class="rule"></span> What it does</p>
+        <h2 class="reveal" style="--i:1">One language. <span class="te">One source of truth.</span></h2>
+        <div class="col-side" style="margin-top:18px">
+          <div>
+            <p class="lede reveal" style="--i:2">
+              Redstart unifies all three artifacts into one language, split across as many <code style="font-family:var(--mono);color:var(--ink)">.red</code> modules as you like, with <code style="font-family:var(--mono);color:var(--ink)">mod</code>/<code style="font-family:var(--mono);color:var(--ink)">use</code> just like Rust. It type-checks them <strong>against each other</strong>: entities can live in one module and the handlers that write them in another, and the compiler resolves and checks across all of them.
+            </p>
+            <ul class="clean reveal" style="--i:3;margin-top:14px">
+              <li>The event signature in the manifest is derived from the ABI <b>by reference</b>. Rename the event and it's a <em>compile</em> error.</li>
+              <li>There is no <code style="font-family:var(--mono);color:var(--ember)">null</code>: nullability is always explicit as <code style="font-family:var(--mono);color:var(--ink)">Option&lt;T&gt;</code>.</li>
+              <li>Entities are dirty-tracked and <b>auto-saved</b>, so forgetting <code style="font-family:var(--mono);color:var(--ember)">.save()</code> can't happen.</li>
+            </ul>
+          </div>
+          <div class="code reveal" style="--i:4">
+            <div class="bar"><span class="dot"></span><span class="fname">main.red</span><span class="tag">one file</span></div>
+<pre><code data-lang="red">abi <span class="ty">ERC20</span> from <span class="st">"./abis/ERC20.json"</span>
+
+entity <span class="ty">Account</span> {
+  id: <span class="ty">Id</span>&lt;<span class="ty">Bytes</span>&gt;
+  balance: <span class="ty">BigInt</span>
+  label: <span class="ty">Option</span>&lt;<span class="ty">String</span>&gt;   <span class="cm">// no null, ever</span>
+}
+
+source <span class="ty">Token</span> {
+  abi: <span class="ty">ERC20</span>
+  network: mainnet
+  address: <span class="nu">0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48</span>
+  startBlock: <span class="nu">6082465</span>
+}
+
+handler on <span class="ty">Token</span>.<span class="ty">Transfer</span>(event) {
+  let receiver = <span class="ty">Account</span>.loadOrCreate(
+    event.params.to, { balance: <span class="ty">BigInt</span>.zero })
+  receiver.balance = receiver.balance + event.params.value
+  <span class="cm">// auto-saved at handler end</span>
+}</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 · HOW Â· THE TRANSPILE (HERO) ──────────────────────── -->
+    <section class="slide">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">08</span><span class="rule"></span> How it does it</p>
+        <h2 class="reveal" style="--i:1">It compiles to the AssemblyScript you'd have <span class="em">written by hand</span>.</h2>
+
+        <div class="transpile reveal" style="--i:2">
+          <div class="pane code">
+            <div class="bar"><span class="dot"></span><span class="fname">transfer.red</span><span class="tag">you write</span></div>
+<pre><code data-lang="red">handler on <span class="ty">Token</span>.<span class="ty">Transfer</span>(event) {
+  let sender = <span class="ty">Account</span>.loadOrCreate(
+    event.params.from, { balance: <span class="ty">BigInt</span>.zero })
+  let receiver = <span class="ty">Account</span>.loadOrCreate(
+    event.params.to, { balance: <span class="ty">BigInt</span>.zero })
+
+  sender.balance   = sender.balance   - event.params.value
+  receiver.balance = receiver.balance + event.params.value
+  <span class="cm">// dirty-tracked, saved automatically</span>
+}</code></pre>
+          </div>
+          <div class="seam"><span class="line"></span><span class="badge">redstart build</span><span class="line"></span></div>
+          <div class="pane code">
+            <div class="bar"><span class="dot"></span><span class="fname">mappings.ts</span><span class="tag t">it emits</span></div>
+<pre><code data-lang="ts">export function <span class="ty">handleTransfer</span>(event: <span class="ty">TransferEvent</span>): void {
+  let sender = <span class="ty">Account</span>.load(event.params.from)
+  if (sender == null) {
+    sender = new <span class="ty">Account</span>(event.params.from)
+    sender.balance = <span class="ty">BigInt</span>.zero()
+  }
+  let receiver = <span class="ty">Account</span>.load(event.params.to)
+  if (receiver == null) {
+    receiver = new <span class="ty">Account</span>(event.params.to)
+    receiver.balance = <span class="ty">BigInt</span>.zero()
+  }
+  sender.balance = sender.balance.minus(event.params.value)
+  receiver.balance = receiver.balance.plus(event.params.value)
+
+  sender.save()
+  receiver.save()
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="xforms reveal" style="--i:3">
+          <div class="xform"><div class="map"><span class="from">loadOrCreate(…)</span><span class="arr">→</span><span class="to">load() + null guard + init</span></div>No raw nullable deref survives; the absent case is handled <b>by construction</b>.</div>
+          <div class="xform"><div class="map"><span class="from">−&nbsp;&nbsp;+</span><span class="arr">→</span><span class="to">.minus()&nbsp;&nbsp;.plus()</span></div>The explicit graph-ts form (bare <code style="font-family:var(--mono)">+</code>/<code style="font-family:var(--mono)">−</code> compile too). The real win is upstream: arithmetic on an <code style="font-family:var(--mono)">Option</code> is a <b>compile error</b>, where AS compiles nullable maths silently and crashes.</div>
+          <div class="xform"><div class="map"><span class="from">// auto-saved</span><span class="arr">→</span><span class="to">.save() injected</span></div>Every dirtied entity is flushed at handler end, even across a helper's early <b>return</b>.</div>
+          <div class="xform"><div class="map"><span class="from">match { Ok / Err }</span><span class="arr">→</span><span class="to">try_*() + !reverted</span></div>A reverted <code style="font-family:var(--mono)">eth_call</code> is forced to be handled, never an unguarded abort.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 · HOW Â· EJECT + GATE ──────────────────────────────── -->
+    <section class="slide alt">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">09</span><span class="rule"></span> How it does it · the proof</p>
+        <h2 class="reveal" style="--i:1">The output is canonical. The store is <span class="te">provably identical</span>.</h2>
+        <p class="lede reveal" style="--i:2">
+          The emitted AssemblyScript is readable and idiomatic, not an opaque intermediate. The official toolchain consumes it unmodified:
+        </p>
+
+        <div class="pipeline reveal" style="--i:3;margin-top:20px">
+          <span class="step rs">redstart build</span><span class="sep">→</span>
+          <span class="step">graph codegen</span><span class="sep">→</span>
+          <span class="step">graph build</span><span class="sep">→</span>
+          <span class="step">graph deploy</span>
+        </div>
+
+        <div class="grid2" style="margin-top:30px">
+          <div class="card reveal" style="--i:4">
+            <span class="ic">THE EJECT PATH</span>
+            <h3>Abandoning Redstart costs nothing</h3>
+            <p>If you ever walk away, you keep the generated AssemblyScript, and it keeps working with the standard toolchain. That defuses the bus-factor objection to betting production infra on a young language. The cost of leaving is zero.</p>
+          </div>
+          <div class="card te reveal" style="--i:5">
+            <span class="ic">THE KILL-GATE</span>
+            <h3>A field-level store-diff</h3>
+            <p>The whole bet is fidelity, so it's continuously falsified: deploy the generated subgraph beside an independently hand-written reference on a live graph-node, and diff the two stores at a fixed block. Identical, or the approach is wrong.</p>
+          </div>
+        </div>
+
+        <div class="gate reveal" style="--i:6">
+          <span class="led"></span>
+          <div>
+            <div class="t1">GATE GREEN</div>
+            <div class="t2">The ARB token on Arbitrum One produced a <b>byte-identical store</b>: <b>0 diffs</b> across 10 Account + 13 Transfer entities at block 477,660,492. Indexing fidelity is no longer a hypothesis.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 · WHY DEVELOPERS CARE ─────────────────────────────── -->
+    <section class="slide">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">10</span><span class="rule"></span> Why subgraph developers care</p>
+        <h2 class="reveal" style="--i:1">The compiler has your <span class="em">back</span>.</h2>
+        <div class="grid3" style="margin-top:22px">
+          <div class="card reveal" style="--i:2"><span class="ic">ERRORS THAT TEACH</span><h3>redstart explain</h3><p>Every diagnostic names the bug it prevents and the canonical fix, not just "type error on line 12." Errors are treated as the product.</p></div>
+          <div class="card reveal" style="--i:3"><span class="ic">NO DRIFT</span><h3>One model, three outputs</h3><p>Schema, manifest, and mappings are projections of your <code style="font-family:var(--mono)">.red</code> source. They can never disagree, because they're never written by hand.</p></div>
+          <div class="card reveal" style="--i:4"><span class="ic">NATIVE TESTING</span><h3>No WASM. No Docker.</h3><p>Tests run in a tree-walking interpreter over a mock store. No WASM compile, no Matchstick binary, no <code style="font-family:var(--mono)">matchstick-as</code>/<code style="font-family:var(--mono)">graph-ts</code> version skew.</p></div>
+        </div>
+
+        <div class="grid2" style="margin-top:24px;align-items:center">
+          <div class="code reveal" style="--i:5">
+            <div class="bar"><span class="dot"></span><span class="fname">tests.red</span><span class="tag">redstart test</span></div>
+<pre><code data-lang="red">test <span class="st">"a transfer debits sender, credits receiver"</span> {
+  <span class="ty">Token</span>.<span class="ty">Transfer</span>({ from: <span class="nu">0x01</span>, to: <span class="nu">0x02</span>, value: <span class="nu">100</span> })
+  assertEq(<span class="ty">Account</span>.at(<span class="nu">0x02</span>).balance, <span class="nu">100</span>)
+}
+
+test <span class="st">"approval reads balance via a contract call"</span> {
+  mockCall(<span class="ty">ERC20</span>.balanceOf(<span class="nu">0x05</span>), <span class="nu">4200</span>)   <span class="cm">// mock the eth_call</span>
+  <span class="ty">Token</span>.<span class="ty">Approval</span>({ owner: <span class="nu">0x05</span>, spender: <span class="nu">0x06</span>, value: <span class="nu">1</span> })
+  assertEq(<span class="ty">Account</span>.at(<span class="nu">0x05</span>).balance, <span class="nu">4200</span>)
+}</code></pre>
+          </div>
+          <div>
+            <p class="lede reveal" style="--i:6;margin-bottom:14px">And the whole toolchain is in one binary:</p>
+            <div class="tag-row reveal" style="--i:7">
+              <span class="pill"><b>lsp</b> diagnostics · hover · go-to-def</span>
+              <span class="pill"><b>fmt</b> canonical, comment-preserving</span>
+              <span class="pill"><b>dev</b> watch: check → build → test</span>
+              <span class="pill"><b>tree-sitter</b> Neovim · Helix · Zed</span>
+              <span class="pill"><b>VS&nbsp;Code</b> extension</span>
+              <span class="pill"><b>playground</b> the compiler, in your browser</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 · WHY INDEXERS CARE ───────────────────────────────── -->
+    <section class="slide alt">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">11</span><span class="rule"></span> Why indexers care</p>
+        <h2 class="reveal" style="--i:1">The leaner subgraph, <span class="te">applied for you</span>.</h2>
+        <p class="lede reveal" style="--i:2">
+          A human writes <em>some</em> AssemblyScript. Redstart writes <strong>every line</strong> of it, from a model that owns the schema, the manifest, <em>and</em> the mappings, so it applies the storage best-practices most subgraphs never get around to, uniformly and every time. It won't beat perfectly hand-tuned AS, but it's a <strong>floor no one forgets to raise</strong>.
+        </p>
+
+        <p class="band-label reveal" style="--i:3">Shipping today · <b style="color:var(--green)">automatic rewrites</b></p>
+        <div class="grid2">
+          <div class="stat reveal" style="--i:3"><div class="big">immutable</div><div class="lab"><b style="color:var(--ink)">Inferred immutability.</b> The checker proves which entities are append-only (created, never mutated anywhere) and emits <code style="font-family:var(--mono)">@entity(immutable: true)</code> for you. No versioned <code style="font-family:var(--mono)">block_range</code> rows: <b style="color:var(--ink)">up to ~19% faster indexing, ~48% less disk</b> on Edge&nbsp;&amp;&nbsp;Node's benchmark (workload-dependent).</div></div>
+          <div class="stat te reveal" style="--i:4"><div class="big">prune: auto</div><div class="lab"><b style="color:var(--ink)">Pruned by default.</b> graph-node's own default is <code style="font-family:var(--mono)">prune: never</code>, which keeps the entire history for a bigger DB and slower queries. Redstart emits <code style="font-family:var(--mono)">prune: auto</code>, keeping only what serving needs.</div></div>
+        </div>
+
+        <p class="band-label reveal" style="--i:5;margin-top:22px">Flagged today · <b style="color:var(--orange)">warns, doesn't fix yet</b></p>
+        <div class="stat reveal" style="--i:5;border-color:var(--orange)"><div class="lab" style="margin-top:0">The <b style="color:var(--ink)">"stuck at 3%" lint (W020)</b>, an <code style="font-family:var(--mono)">eth_call</code> inside a loop with one serial blocking RPC per iteration, is caught before you deploy, alongside handler-shape lints (unfiltered block handlers, call-handlers on non-tracing chains). These <em style="color:var(--ink)">warn</em>. Turning them into automatic, gate-proven rewrites is next.</div></div>
+
+        <div class="gate reveal" style="--i:6;margin-top:30px">
+          <span class="led"></span>
+          <div>
+            <div class="t1">THE CLOSED LOOP</div>
+            <div class="t2">Because the store-diff gate is green (<b>0 diffs</b> on the arb-erc20 fixture), the emitted AssemblyScript can be optimised with a safety net: change the output, re-run the diff, ship only if the indexed store stays <b>byte-identical</b>. That's performance work that can't silently corrupt the data, which nothing else in the ecosystem can offer.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 12 · LOOKING AHEAD ──────────────────────────────────── -->
+    <section class="slide alt">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">12</span><span class="rule"></span> Looking ahead</p>
+        <h2 class="reveal" style="--i:1">Safer is nearly done. <span class="em">Faster</span> is the frontier.</h2>
+        <p class="lede reveal" style="--i:2">
+          Redstart owns the codegen, so a performance optimisation is just a <em style="color:var(--ink)">better lowering</em> of the same <code style="font-family:var(--mono);color:var(--ink)">.red</code>, and the kill-gate proves every one byte-identical. Apply the rewrite, re-run the store-diff, ship only if it still reads <b style="color:var(--ink)">0 differences</b>. Neither a language nor a library can pull this lever: speed that provably can't change your data. It's the roadmap's priority arc, with immutability inference and pruning already shipping.
+        </p>
+
+        <div class="grid2" style="margin-top:26px">
+          <div class="card reveal" style="--i:3">
+            <span class="ic">FOR INDEXERS &middot; FASTER SYNCS, LEANER STORAGE</span>
+            <h3>The optimising compiler: every rewrite gate-proven.</h3>
+            <ul class="clean">
+              <li>Auto-fill <code style="font-family:var(--mono);color:var(--ink)">startBlock</code> from the contract's deployment block, so you <b>stop scanning dead chains</b> (the single biggest sync win).</li>
+              <li>Declare <code style="font-family:var(--mono);color:var(--ink)">eth_calls</code> for <b>parallel, cached pre-fetch</b> (~5-10&times;), or drop the call entirely when its result already rides in the triggering event.</li>
+              <li><code style="font-family:var(--mono);color:var(--ink)">Bytes</code> ids atop inferred <code style="font-family:var(--mono);color:var(--ink)">immutable</code>, for the benchmark's full <b>~28% faster, ~48% less disk</b>. Growing arrays rewritten to <code style="font-family:var(--mono);color:var(--ink)">@derivedFrom</code>, O(n²)&nbsp;&rarr;&nbsp;O(n).</li>
+              <li><b>Redundant loads coalesced</b> and hoisted out of loops, down to one <code style="font-family:var(--mono);color:var(--ink)">load</code> + versioned write where there were many.</li>
+              <li>Hand-rolled rolling sums pushed into the DB as an <code style="font-family:var(--mono);color:var(--ink)">@aggregation</code>, so a write-contention hotspot goes away with <b>zero handler code</b>.</li>
+            </ul>
+          </div>
+          <div class="card te reveal" style="--i:4">
+            <span class="ic">FOR DEVELOPERS &middot; SAFER, AND EFFORTLESS</span>
+            <h3>The language keeps closing gaps you never wanted.</h3>
+            <ul class="clean te">
+              <li>The last footguns fall: <b>entity-ID collisions</b>, <b>event-signature drift</b>, and full <b>determinism</b> become compile errors.</li>
+              <li><code style="font-family:var(--mono);color:var(--ink)">redstart new --from 0x…</code> scaffolds a whole subgraph from a contract address, in one command.</li>
+              <li><b>Agent-native</b>: machine-readable diagnostics and an MCP server, so an AI can author and fix subgraphs in-loop.</li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="gv-foot reveal" style="--i:5">Same network. Same byte-identical data. Just <span class="em">faster</span>, <span class="em">safer</span>, and finally pleasant to write.</p>
+      </div>
+    </section>
+
+    <!-- 13 · WHY RUST (THE COMPILER'S HEADROOM) ─────────────── -->
+    <section class="slide">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">13</span><span class="rule"></span> Why Rust</p>
+        <h2 class="reveal" style="--i:1">Built in Rust: a <span class="em">platform</span>, not a translator.</h2>
+        <p class="lede reveal" style="--i:2">
+          Redstart is a real compiler, written in Rust, with a full semantic model of your subgraph and the entire crates.io ecosystem behind it, none of which is ever coming to AssemblyScript. That's how it catches bugs, and it's also headroom: a compiler that <em style="color:var(--ink)">understands</em> your subgraph can answer questions about it no library or linter ever could.
+        </p>
+
+        <div class="grid2" style="margin-top:24px;align-items:start">
+          <div>
+            <p class="small reveal" style="--i:3;line-height:1.6;margin:0 0 12px;color:var(--ink-2)">
+              <b style="color:var(--ink)">Know a subgraph's cost before you index it.</b> The network's biggest blind spot: nobody knows how large a subgraph will get, or how long it'll take to sync, until they're already deep into indexing it.
+            </p>
+            <div class="code reveal" style="--i:4">
+              <div class="bar"><span class="dot"></span><span class="fname">redstart check --cost</span><span class="tag">roadmap</span></div>
+<pre><code data-lang="ts">  <span class="ty">Transfer</span>       immutable · ~90 B/row · 1 row / event
+  <span class="ty">Account</span>        mutable   · ~120 B/row · <span class="nu">⚠ re-versioned every update</span>
+  <span class="ty">Token</span>.holders  [<span class="ty">Account</span>!]! · <span class="nu">⚠ unbounded, O(n²) on disk</span>
+  <span class="ty">Mint</span> handler    2 eth_calls, serial · <span class="nu">⚠ sync-bound</span>
+  <span class="cm">──────────────────────────────────────────</span>
+  <span class="cm">≈ 3 writes/event · storage super-linear · eth_call-bound</span></code></pre>
+            </div>
+            <p class="small reveal" style="--i:5;line-height:1.6;margin:11px 0 0;color:var(--ink-3)">
+              Redstart already builds the model this needs: every entity, every handler, every write. Turning it into a report an indexer reads <em>before</em> syncing is exactly what only a compiler can do.
+            </p>
+          </div>
+          <div>
+            <ul class="clean te reveal" style="--i:6">
+              <li><b>The whole crates.io ecosystem.</b> Redstart already runs on a real lexer (<code style="font-family:var(--mono);color:var(--ink)">logos</code>), rich diagnostics (<code style="font-family:var(--mono);color:var(--ink)">miette</code>), a proper language server (<code style="font-family:var(--mono);color:var(--ink)">tower-lsp</code>). Fuzzing, property tests and incremental analysis all follow, none of it coming to AssemblyScript.</li>
+              <li><b>One static binary.</b> No Node, no Docker, no Postgres. The AssemblyScript toolchain needs all three.</li>
+              <li><b>Whole-program analysis at Rust speed</b>: schema, manifest and handlers modelled together, fast enough to run in your editor as you type.</li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="gv-foot reveal" style="--i:7">AssemblyScript is where a subgraph runs. <span class="em">Rust</span> is where it finally gets understood.</p>
+      </div>
+    </section>
+
+    <!-- 14 · STATUS + CTA ────────────────────────────────────── -->
+    <section class="slide">
+      <div class="wrap">
+        <p class="eyebrow reveal" style="--i:0"><span class="num">14</span><span class="rule"></span> Where it stands</p>
+        <h2 class="reveal" style="--i:1">Stage 0 is <span class="em">done</span>. Early, but real and end-to-end.</h2>
+        <p class="lede reveal" style="--i:2">
+          Proven by porting a real subgraph, PaulieB14's Graph Horizon indexer with three contracts on Arbitrum One, and <strong>deploying it live to Subgraph Studio</strong>. It's scoped as a Graph-Foundation-grant public good in the lineage of Matchstick, the framework this whole story started with, not a venture bet. Its purpose was never to make subgraphs faster to <em>write</em>. It's to make <strong>staying</strong> on the decentralized network pleasant, after years of watching people reach for a centralized alternative the moment AssemblyScript bit them.
+        </p>
+
+        <div class="grid3 reveal" style="--i:3;margin-top:26px">
+          <div class="stat"><div class="big">12.7k</div><div class="lab">lines of Rust, across 8 crates, one phase each: parser, loader, checker, codegen, test, lsp, cli, wasm.</div></div>
+          <div class="stat te"><div class="big">30</div><div class="lab">teaching diagnostic codes: the footgun catalogue, each with the bug it prevents and the fix.</div></div>
+          <div class="stat"><div class="big">0 edits</div><div class="lab">to eject: <code style="font-family:var(--mono)">graph build</code> compiles the full feature surface to WASM unmodified.</div></div>
+        </div>
+
+        <div class="cta reveal" style="--i:4">
+          <code><span class="pr">brew</span> install lodestar-team/tap/redstart</code>
+          <span class="or">or</span>
+          <code><span class="pr">cargo</span> run -p redstart-cli -- new my-subgraph</code>
+        </div>
+        <p class="links reveal" style="--i:5">
+          github.com/<a href="https://github.com/lodestar-team/redstart">lodestar-team/redstart</a><br>
+          the playground runs the real compiler in your browser: write <code style="font-family:var(--mono);color:var(--ink)">.red</code>, watch the AssemblyScript update as you type.
+        </p>
+        <p class="credit reveal" style="--i:6">
+          MIT © The Lodestar Team. Horizon-indexer example ported with credit to <a href="https://github.com/PaulieB14">PaulieB14</a>; all indexing-design credit is theirs.
+        </p>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<div class="chrome">
+  <div class="counter"><b id="cur">01</b> / <span id="total">09</span></div>
+  <div class="dots" id="dots" role="tablist" aria-label="Slides"></div>
+  <div class="arrows">
+    <button id="prev" aria-label="Previous slide">‹</button>
+    <button id="next" aria-label="Next slide">›</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ── cosmic starfield (brand backdrop) ── */
+  (function(){
+    var cosmos = document.getElementById("cosmos");
+    if(!cosmos) return;
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var frag = document.createDocumentFragment();
+    [["10%","-8%","44vw","rgba(255,51,85,.16)"],
+     ["88%","102%","40vw","rgba(255,122,69,.12)"],
+     ["98%","16%","26vw","rgba(166,15,51,.18)"]].forEach(function(g){
+      var d = document.createElement("div"); d.className = "glow";
+      d.style.left = g[0]; d.style.top = g[1]; d.style.width = g[2]; d.style.height = g[2];
+      d.style.background = "radial-gradient(circle at center,"+g[3]+",transparent 70%)";
+      frag.appendChild(d);
+    });
+    for(var i=0;i<64;i++){
+      var s = document.createElement("span");
+      s.className = "star" + (Math.random()<0.12 ? " r" : "");
+      var sz = (Math.random()*1.6 + 0.6).toFixed(2);
+      s.style.width = sz+"px"; s.style.height = sz+"px";
+      s.style.left = (Math.random()*100).toFixed(2)+"%";
+      s.style.top = (Math.random()*100).toFixed(2)+"%";
+      var base = Math.random()*0.5 + 0.2;
+      s.style.opacity = base.toFixed(2);
+      if(!reduce){
+        s.style.setProperty("--lo", (base*0.5).toFixed(2));
+        s.style.setProperty("--hi", Math.min(1, base+0.4).toFixed(2));
+        s.style.animation = "twinkle " + (Math.random()*4+3).toFixed(2) + "s ease-in-out " + (Math.random()*5).toFixed(2) + "s infinite";
+      }
+      frag.appendChild(s);
+    }
+    cosmos.appendChild(frag);
+  })();
+
+  /* ── syntax highlighter (operates on already-escaped textContent) ── */
+  var SPECS = {
+    red: [
+      ["cm", /\/\/[^\n]*/],
+      ["st", /"(?:[^"\\]|\\.)*"/],
+      ["nu", /0x[0-9a-fA-F]+|\b\d+(?:\.\d+)?\b/],
+      ["kw", /\b(?:mod|use|abi|from|entity|immutable|timeseries|aggregation|over|every|source|template|handler|on|call|block|file|fn|let|match|derived|test|return|if|else|while|for|kind|Ok|Err|Some|None|true|false)\b/],
+      ["ty", /\b[A-Z][A-Za-z0-9_]*\b/]
+    ],
+    ts: [
+      ["cm", /\/\/[^\n]*/],
+      ["st", /"(?:[^"\\]|\\.)*"/],
+      ["nu", /0x[0-9a-fA-F]+|\b\d+(?:\.\d+)?\b/],
+      ["kw", /\b(?:export|function|void|let|const|var|new|if|else|return|import|from|null|true|false|while|for)\b/],
+      ["ty", /\b[A-Z][A-Za-z0-9_]*\b/]
+    ],
+    gql: [
+      ["cm", /#[^\n]*/],
+      ["kw", /\b(?:type|enum|interface)\b|@\w+/],
+      ["ty", /\b[A-Z][A-Za-z0-9_]*\b/],
+      ["nu", /\b\d+\b/]
+    ],
+    yaml: [
+      ["cm", /#[^\n]*/],
+      ["st", /"(?:[^"\\]|\\.)*"/],
+      ["nu", /\b\d+\b/]
+    ]
+  };
+  function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function highlight(el){
+    try{
+      var lang = el.getAttribute("data-lang");
+      var specs = SPECS[lang];
+      if(!specs) return;
+      var combined = new RegExp(specs.map(function(s){return "("+s[1].source+")";}).join("|"), "g");
+      var src = el.textContent, out = "", last = 0, m;
+      while((m = combined.exec(src)) !== null){
+        if(m[0].length === 0){ combined.lastIndex++; continue; }
+        out += esc(src.slice(last, m.index));
+        var cls = null;
+        for(var i=0;i<specs.length;i++){ if(m[i+1] !== undefined){ cls = specs[i][0]; break; } }
+        out += '<span class="'+cls+'">'+esc(m[0])+"</span>";
+        last = m.index + m[0].length;
+      }
+      out += esc(src.slice(last));
+      el.innerHTML = out;
+    }catch(e){ /* keep pre-escaped fallback */ }
+  }
+  // Only highlight blocks that aren't already hand-marked with spans.
+  document.querySelectorAll("code[data-lang]").forEach(function(el){
+    if(el.querySelector("span")) return; // already styled inline
+    highlight(el);
+  });
+
+  /* ── deck navigation ── */
+  var track = document.getElementById("track");
+  var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var n = slides.length;
+  var idx = 0;
+  var progress = document.getElementById("progress");
+  var cur = document.getElementById("cur");
+  var prevBtn = document.getElementById("prev");
+  var nextBtn = document.getElementById("next");
+  var dotsWrap = document.getElementById("dots");
+  var hint = document.getElementById("hint");
+
+  document.getElementById("total").textContent = String(n).padStart(2,"0");
+
+  var dots = slides.map(function(_, i){
+    var b = document.createElement("button");
+    b.setAttribute("role","tab");
+    b.setAttribute("aria-label","Go to slide "+(i+1));
+    b.addEventListener("click", function(){ go(i); });
+    dotsWrap.appendChild(b);
+    return b;
+  });
+
+  function go(target){
+    idx = Math.max(0, Math.min(n-1, target));
+    track.style.transform = "translateX(-"+(idx*100)+"%)";
+    progress.style.width = ((idx)/(n-1)*100)+"%";
+    cur.textContent = String(idx+1).padStart(2,"0");
+    prevBtn.disabled = idx === 0;
+    nextBtn.disabled = idx === n-1;
+    slides.forEach(function(s,i){ s.classList.toggle("is-active", i===idx); s.scrollTop = 0; });
+    dots.forEach(function(d,i){ d.setAttribute("aria-current", i===idx ? "true" : "false"); });
+  }
+
+  prevBtn.addEventListener("click", function(){ go(idx-1); });
+  nextBtn.addEventListener("click", function(){ go(idx+1); });
+
+  function dismissHint(){ if(hint){ hint.classList.add("gone"); } }
+
+  document.addEventListener("keydown", function(e){
+    var a = document.activeElement;
+    if(a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) return;
+    if(e.key === "ArrowRight" || e.key === "PageDown"){ go(idx+1); dismissHint(); e.preventDefault(); }
+    else if(e.key === "ArrowLeft" || e.key === "PageUp"){ go(idx-1); dismissHint(); e.preventDefault(); }
+    else if(e.key === " "){ go(idx + (e.shiftKey ? -1 : 1)); dismissHint(); e.preventDefault(); }
+    else if(e.key === "Home"){ go(0); e.preventDefault(); }
+    else if(e.key === "End"){ go(n-1); e.preventDefault(); }
+  });
+
+  // wheel: horizontal-ish intent advances; let vertical scroll work inside tall slides
+  var wheelLock = false;
+  track.addEventListener("wheel", function(e){
+    var s = slides[idx];
+    var canScroll = s.scrollHeight > s.clientHeight + 2;
+    if(canScroll && Math.abs(e.deltaY) > Math.abs(e.deltaX)) return; // let it scroll
+    if(wheelLock) return;
+    var d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if(Math.abs(d) < 24) return;
+    wheelLock = true;
+    go(idx + (d > 0 ? 1 : -1)); dismissHint();
+    setTimeout(function(){ wheelLock = false; }, 720);
+  }, {passive:true});
+
+  // touch swipe
+  var tx = 0, ty = 0;
+  track.addEventListener("touchstart", function(e){ tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, {passive:true});
+  track.addEventListener("touchend", function(e){
+    var dx = e.changedTouches[0].clientX - tx;
+    var dy = e.changedTouches[0].clientY - ty;
+    if(Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)){ go(idx + (dx < 0 ? 1 : -1)); dismissHint(); }
+  }, {passive:true});
+
+  setTimeout(dismissHint, 5000);
+  go(0);
+})();
+</script>
+</body>
+</html>
