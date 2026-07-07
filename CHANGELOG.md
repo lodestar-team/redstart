@@ -6,6 +6,23 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-07
+
+Optimising compiler — roadmap §4.3 (Bytes-ids, the id half).
+
+### Added
+- **W040 — stringified-id warning.** The checker now flags an entity keyed on a
+  single `Bytes`/`Address` value stringified with `.toHexString()` / `.toHex()`
+  (directly, or via a local), and recommends `id: Id<Bytes>`. A `Bytes` id (with
+  immutability) indexes ~28% faster and stores ~48% less than the equivalent
+  hex-string id (Edge & Node benchmark). Genuine composite keys
+  (`a.toHexString() + "-" + b…`) and literal-string ids are never flagged.
+  This is a warning rather than an auto-rewrite: converting a String id to `Bytes`
+  changes the stored id representation (hex-string → raw bytes), so it is a data
+  change the author opts into — unlike immutability inference, which is
+  store-identical. Registered in `redstart explain W040`. Brings the diagnostic
+  catalogue to 31 codes (26 errors, 5 warnings).
+
 ## [0.10.0] - 2026-06-27
 
 Optimising compiler — roadmap §4.5.

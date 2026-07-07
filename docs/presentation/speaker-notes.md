@@ -143,13 +143,13 @@ codes" line. **This is a proof slide. Slow down.**
 > Linter that names these eight checks. Its own docs describe them as things that
 > compile fine and then crash at runtime. A linter is a separate pass you can skip,
 > and the code ships anyway. Redstart turns the same footguns into compile errors
-> or absent grammar. Right now that's 30 codes, and counting.
+> or absent grammar. Right now that's 31 codes, and counting.
 
 **Key point:** frame the linter as *validation of the thesis by The Graph itself*.
 They admit these are footguns. Redstart's move is to make them unrepresentable
 rather than lintable.
 
-**If asked "why 30 and not the 8?":** the linter's 8 are the named ones; Redstart
+**If asked "why 31 and not the 8?":** the linter's 8 are the named ones; Redstart
 also covers determinism, precision, division, handler shape, and structural checks
 the linter doesn't have.
 
@@ -505,7 +505,7 @@ codes, 0 edits to eject), the install commands, and the links.
 > on the decentralized network pleasant, after years of watching people reach for a
 > centralized alternative the moment AssemblyScript bit them.
 >
-> About 12,600 lines of Rust across 8 crates, 30 teaching diagnostic codes, and
+> About 12,600 lines of Rust across 8 crates, 31 teaching diagnostic codes, and
 > zero edits needed to eject to the standard toolchain. You can `brew install` it
 > today, and the playground runs the real compiler in your browser.
 
@@ -522,7 +522,7 @@ v0.10.0 release. Use these numbers with confidence.
 
 | Claim | Value |
 |---|---|
-| Diagnostic codes | 30 total (26 errors `E***`, 4 warnings `W***`) |
+| Diagnostic codes | 31 total (26 errors `E***`, 5 warnings `W***`) |
 | Rust source | ~12,600 lines across 8 crates |
 | Crates | parser, loader, checker, codegen, test, lsp, cli, wasm |
 | Releases shipped | v0.1.0 → v0.10.0 (10 tagged releases) |
@@ -536,7 +536,7 @@ v0.10.0 release. Use these numbers with confidence.
 The diagnostic codes referenced on slide 3: E062 (nullable deref), E061
 (arithmetic on `Option`), E060 (`.value` of an unmatched call), E051 (incomplete
 initializer), E090 (division by zero), E080 (non-deterministic call), W030 (BigInt
-division precision), W020 (eth_call in a loop).
+division precision), W020 (eth_call in a loop), W040 (stringified Bytes id).
 
 The eight Subgraph Linter checks (slide 3): entity-overwrite, unexpected-null,
 unchecked-load, unchecked-nonnull, division-guard, derived-field-guard,

@@ -232,6 +232,13 @@ static EXPLANATIONS: &[Explanation] = &[
         fix: "Hoist the call out of the loop if its result is loop-invariant, or cache it. Reading the same value once and reusing it is dramatically faster.",
     },
     Explanation {
+        code: "W040",
+        title: "entity id is a stringified address/bytes",
+        summary: "An entity is keyed on a single `Bytes`/`Address` value stringified with `.toHexString()` / `.toHex()` — a hex-string id instead of a raw-bytes one.",
+        prevents: "Needless indexing cost: a `Bytes` id (with immutability) indexes ~28% faster and stores ~48% less than the equivalent hex-string id (Edge & Node benchmark). Composite ids joined from several values are genuinely strings and are never flagged.",
+        fix: "Declare the entity `id: Id<Bytes>` and pass the raw `Bytes`/`Address`, dropping the `.toHexString()`. Note this changes the stored id representation, so re-deploy from the affected block.",
+    },
+    Explanation {
         code: "W011",
         title: "unfiltered block handler",
         summary: "A `handler block Src` with no `every N` or `once` runs on every block of the entire chain.",

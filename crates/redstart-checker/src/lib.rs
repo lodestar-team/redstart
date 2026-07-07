@@ -626,6 +626,14 @@ fn check_handler(
     };
     let mut locals: HashMap<String, RTy> = HashMap::new();
     check_block(&h.body.stmts, &ctx, &mut locals, file, diags);
+    warn_stringified_ids(
+        &h.body.stmts,
+        &ctx,
+        &mut HashMap::new(),
+        &mut HashSet::new(),
+        file,
+        diags,
+    );
 }
 
 /// Check a free `fn` body — same footgun analysis as a handler, with the
@@ -656,6 +664,14 @@ fn check_fn(
         .map(|p| (p.name.name.clone(), resolve_type(&p.ty, entities)))
         .collect();
     check_block(&func.body.stmts, &ctx, &mut locals, file, diags);
+    warn_stringified_ids(
+        &func.body.stmts,
+        &ctx,
+        &mut locals.clone(),
+        &mut HashSet::new(),
+        file,
+        diags,
+    );
 }
 
 /// Convert an optional ABI parameter list into a name → resolved-type map.
@@ -862,6 +878,183 @@ fn warn_calls_in_expr(
             }
         }
         _ => {}
+    }
+}
+
+/// Warn (W040) when an entity id is a single `Bytes`/`Address` value stringified
+/// via `.toHexString()` / `.toHex()`. A `Bytes` id indexes ~28% faster and uses
+/// ~48% less disk than the equivalent hex-string id (Edge & Node benchmark), so
+/// the entity should declare `id: Id<Bytes>` and pass the raw value. Composite ids
+/// (`a.toHexString() + "-" + b…`, a `Binary`) and literal-string ids are genuinely
+/// strings and never fire.
+///
+/// This is a *warning*, not an auto-rewrite: converting a String id to `Bytes`
+/// changes the stored id value (hex-string → raw bytes), so it is a data change the
+/// author must opt into — unlike immutability inference, which is store-identical.
+fn warn_stringified_ids(
+    stmts: &[Stmt],
+    ctx: &BodyCtx,
+    locals: &mut HashMap<String, RTy>,
+    hex_locals: &mut HashSet<String>,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { name, value, .. } => {
+                warn_stringified_ctor_id(value, ctx, locals, hex_locals, file, diags);
+                if stringified_single_bytes(value, ctx, locals) {
+                    hex_locals.insert(name.name.clone());
+                } else {
+                    hex_locals.remove(&name.name);
+                }
+                locals.insert(name.name.clone(), infer(value, ctx, locals));
+            }
+            Stmt::Assign { value, .. } => {
+                warn_stringified_ctor_id(value, ctx, locals, hex_locals, file, diags);
+            }
+            Stmt::Return { value: Some(v), .. } => {
+                warn_stringified_ctor_id(v, ctx, locals, hex_locals, file, diags);
+            }
+            Stmt::Return { .. } => {}
+            Stmt::If {
+                then_block,
+                else_ifs,
+                else_block,
+                ..
+            } => {
+                warn_stringified_ids(
+                    &then_block.stmts,
+                    ctx,
+                    &mut locals.clone(),
+                    &mut hex_locals.clone(),
+                    file,
+                    diags,
+                );
+                for (_, b) in else_ifs {
+                    warn_stringified_ids(
+                        &b.stmts,
+                        ctx,
+                        &mut locals.clone(),
+                        &mut hex_locals.clone(),
+                        file,
+                        diags,
+                    );
+                }
+                if let Some(b) = else_block {
+                    warn_stringified_ids(
+                        &b.stmts,
+                        ctx,
+                        &mut locals.clone(),
+                        &mut hex_locals.clone(),
+                        file,
+                        diags,
+                    );
+                }
+            }
+            Stmt::While { body, .. } => warn_stringified_ids(
+                &body.stmts,
+                ctx,
+                &mut locals.clone(),
+                &mut hex_locals.clone(),
+                file,
+                diags,
+            ),
+            Stmt::For { var, body, .. } => {
+                let mut l = locals.clone();
+                l.insert(var.name.clone(), RTy::Unknown);
+                warn_stringified_ids(
+                    &body.stmts,
+                    ctx,
+                    &mut l,
+                    &mut hex_locals.clone(),
+                    file,
+                    diags,
+                );
+            }
+            Stmt::Expr(e) => {
+                if let Expr::Match { arms, .. } = e {
+                    for arm in arms {
+                        warn_stringified_ids(
+                            &arm.body.stmts,
+                            ctx,
+                            &mut locals.clone(),
+                            &mut hex_locals.clone(),
+                            file,
+                            diags,
+                        );
+                    }
+                } else {
+                    warn_stringified_ctor_id(e, ctx, locals, hex_locals, file, diags);
+                }
+            }
+        }
+    }
+}
+
+/// Is `expr` exactly `<base>.toHexString()` / `<base>.toHex()` where `<base>` is a
+/// single `Bytes`/`Address` value? (A concatenation is a `Binary`, not a `Call`.)
+fn stringified_single_bytes(expr: &Expr, ctx: &BodyCtx, locals: &HashMap<String, RTy>) -> bool {
+    let Expr::Call { callee, args, .. } = expr else {
+        return false;
+    };
+    if !args.is_empty() {
+        return false;
+    }
+    let Expr::Field { base, field, .. } = callee.as_ref() else {
+        return false;
+    };
+    matches!(field.name.as_str(), "toHexString" | "toHex")
+        && matches!(infer(base, ctx, locals), RTy::Bytes | RTy::Address)
+}
+
+/// The id argument of an `Entity.create(id, …)` / `Entity.loadOrCreate(id, …)`.
+fn ctor_id_arg(value: &Expr) -> Option<&Expr> {
+    let Expr::Call { callee, args, .. } = value else {
+        return None;
+    };
+    let Expr::Field { base, field, .. } = callee.as_ref() else {
+        return None;
+    };
+    if !matches!(field.name.as_str(), "create" | "loadOrCreate") {
+        return None;
+    }
+    let Expr::Path { .. } = base.as_ref() else {
+        return None;
+    };
+    args.first()
+}
+
+/// Emit W040 if a create/loadOrCreate keys the entity on a stringified single
+/// address/bytes — directly (`E.create(addr.toHexString(), …)`) or via a local
+/// (`let id = addr.toHexString(); E.create(id, …)`).
+fn warn_stringified_ctor_id(
+    value: &Expr,
+    ctx: &BodyCtx,
+    locals: &HashMap<String, RTy>,
+    hex_locals: &HashSet<String>,
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
+    let Some(id_arg) = ctor_id_arg(value) else {
+        return;
+    };
+    let via_local = matches!(id_arg, Expr::Path { segments, .. }
+        if segments.len() == 1 && hex_locals.contains(&segments[0].name));
+    if stringified_single_bytes(id_arg, ctx, locals) || via_local {
+        diags.push(
+            Diag::new(
+                file,
+                id_arg.span(),
+                "W040",
+                "entity id is a single address/bytes value stringified via `.toHexString()`",
+                "a Bytes id indexes ~28% faster and uses ~48% less disk",
+            )
+            .warning()
+            .with_help(
+                "declare the entity `id: Id<Bytes>` and pass the raw `Bytes`/`Address`, dropping the `.toHexString()` (Edge & Node benchmark)",
+            ),
+        );
     }
 }
 

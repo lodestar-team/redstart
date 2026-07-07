@@ -230,14 +230,19 @@ metadata calls (`name`/`symbol`/`decimals`) not behind a `load()==null` cache.
 [reduce eth_calls](https://thegraph.com/blog/improve-subgraph-performance-reduce-eth-calls/) ·
 [declared calls (Goldsky)](https://docs.goldsky.com/subgraphs/guides/declared-eth-calls)
 
-### 4.3 ✅→🔜 [AUTO] Infer `immutable: true` (v0.9.0) · Bytes-ids next
+### 4.3 ✅→🔜 [AUTO/WARN] Infer `immutable: true` (v0.9.0) · Bytes-ids (W040, v0.11.0)
 Measured (Edge & Node benchmark): immutable + Bytes ids → **28% faster indexing,
-48% less disk** vs mutable + String ids. **[AUTO]**: when an id comes from a Bytes
-source only `.toHexString()`'d to fit a `String!`, rewrite the field to `id: Bytes!`
-and drop the conversion. When a type is only ever `new`-constructed + `.save()`d
-(never load-then-mutate anywhere), emit `@entity(immutable: true)`. (Redstart already
-does this for timeseries — generalise it.) Caveat: figures are "up to" and
-workload-dependent ([#3534](https://github.com/graphprotocol/graph-node/issues/3534)
+48% less disk** vs mutable + String ids. **✅ [WARN] (v0.11.0):** W040 flags an id
+built by stringifying a single `Bytes`/`Address` (`.toHexString()`/`.toHex()`,
+directly or via a local) and recommends `id: Id<Bytes>`. Deliberately a *warning*,
+not an auto-rewrite: a String→Bytes id changes the stored id value (hex-string → raw
+bytes), so — unlike immutability, which is store-identical — it is a data change the
+author opts into (re-deploy from the affected block). Composite keys and literal-string
+ids are never flagged. **🔜 [AUTO] next:** an opt-in `--rewrite-ids` that performs the
+conversion + drops the `.toHexString()`. When a type is only ever `new`-constructed +
+`.save()`d (never load-then-mutate anywhere), emit `@entity(immutable: true)`.
+(Redstart already does this for timeseries — generalise it.) Caveat: figures are "up to"
+and workload-dependent ([#3534](https://github.com/graphprotocol/graph-node/issues/3534)
 shows a regression case) — so gate behind a confidence check / opt-out.
 *Refs:* [bytes-as-ids](https://thegraph.com/docs/en/subgraphs/best-practices/immutable-entities-bytes-as-ids/) ·
 [benchmark](https://medium.com/edge-node-engineering/two-simple-subgraph-performance-improvements-a76c6b3e7eac)
@@ -380,7 +385,9 @@ references for `factory` / `horizon-indexer` to widen the gate.
 a release, each with a `run.sh all` "0 diffs but N% faster" proof.*
 1. ✅ **`immutable` inference (§4.3, v0.9.0)** — auto-marks append-only entities
    `@entity(immutable: true)` (created-but-never-loaded/mutated); consistent with the
-   gate-proven erc20 annotations. **Next:** the Bytes-id half (default `Id<Bytes>`).
+   gate-proven erc20 annotations. ✅ **Bytes-id half (§4.3, v0.11.0)** — W040 flags a
+   single address/bytes stringified into the id, steering to `Id<Bytes>` (~28%/48%).
+   **Next:** opt-in `--rewrite-ids` auto-conversion.
 2. **Stored-array → `@derivedFrom` rewrite (§4.4)** — O(n²) → O(n) disk.
 3. ✅ **`prune: auto` default (§4.5, v0.10.0)** — smaller DB, faster queries, for free.
 4. **Load coalescing / loop-invariant hoist (§4.6)**.

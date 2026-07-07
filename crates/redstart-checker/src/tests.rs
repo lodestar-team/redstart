@@ -288,6 +288,61 @@ fn warns_on_unfiltered_block_handler() {
     assert_warns(&src, "W011");
 }
 
+/// A project whose `Holder` entity is keyed on a `String` id, with a handler body
+/// we vary to exercise W040 (stringified single-value id vs genuine composite id).
+fn with_string_id_holder(body: &str) -> String {
+    format!(
+        "{}\nentity Holder {{ id: Id<String> balance: BigInt }}\nhandler on Token.Transfer(event) {{\n{body}\n}}\n",
+        PREAMBLE
+    )
+}
+
+fn assert_no_warn(src: &str, code: &str) {
+    let diags = diags_of(src);
+    assert!(
+        !diags.iter().any(|d| d.code_short() == code),
+        "unexpected {code}; got: {:?}",
+        diags.iter().map(|d| d.code_short()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn warns_on_stringified_id_via_local() {
+    // `let id = addr.toHexString(); Holder.create(id, …)` — a Bytes id would be
+    // ~28% faster / ~48% smaller.
+    let src = with_string_id_holder(
+        "let id = event.params.to.toHexString()\n\
+         let h = Holder.create(id, { balance: BigInt.zero })",
+    );
+    assert_warns(&src, "W040");
+}
+
+#[test]
+fn warns_on_stringified_id_inline() {
+    let src = with_string_id_holder(
+        "let h = Holder.create(event.params.from.toHexString(), { balance: BigInt.zero })",
+    );
+    assert_warns(&src, "W040");
+}
+
+#[test]
+fn no_warning_for_composite_string_id() {
+    // A genuine composite key (two values joined) is really a String — never flag.
+    let src = with_string_id_holder(
+        "let id = event.params.from.toHexString() + \"-\" + event.params.to.toHexString()\n\
+         let h = Holder.create(id, { balance: BigInt.zero })",
+    );
+    assert_no_warn(&src, "W040");
+}
+
+#[test]
+fn no_warning_for_raw_bytes_id() {
+    // The good case: raw Bytes/Address id, no stringification.
+    let src =
+        with_handler("let acct = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })");
+    assert_no_warn(&src, "W040");
+}
+
 #[test]
 fn warns_on_call_handler_on_non_tracing_network() {
     let src = r#"
