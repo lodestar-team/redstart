@@ -7,6 +7,8 @@ import { sanitizeName } from "@/lib/generate";
 import { connectGitHub, type CreatedRepo, createSubgraphRepo } from "@/lib/github";
 import { downloadProject, projectFiles, type VerifyResult, verifyProject } from "@/lib/project";
 
+// GitHub OAuth client id (public). Inlined at build time — a NEXT_PUBLIC change
+// requires a fresh compile of this module (touch the source to bust the cache).
 const GITHUB_CLIENT_ID = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
 import type { ContractInfo, EventDef } from "@/lib/subgraph-abi";
 
