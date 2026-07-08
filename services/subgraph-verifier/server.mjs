@@ -1,6 +1,7 @@
 // Subgraph verifier — a tiny, isolated sandbox that runs the REAL Graph toolchain
-// (`graph codegen && graph build`) on a generated subgraph and reports whether it
-// compiles. This is the "verified before you see it" gate for The Generator.
+// (`graph codegen && graph build && graph test`) on a generated subgraph and reports
+// whether it compiles and its Matchstick tests pass. The "verified before you see
+// it" gate for The Generator.
 //
 // It receives a small file map (schema, manifest, mappings, ABI) over HTTP, drops
 // it into a copy of a pre-installed base project (graph-cli + graph-ts already in
@@ -17,7 +18,7 @@ import { join } from "node:path";
 const PORT = Number(process.env.PORT ?? 8787);
 const BASE_PROJECT = process.env.BASE_PROJECT ?? "/opt/base";
 const AUTH_TOKEN = process.env.VERIFIER_TOKEN ?? ""; // shared secret with the proxy
-const TIMEOUT_MS = 90_000;
+const TIMEOUT_MS = 150_000;
 const MAX_BODY = 2_000_000; // 2 MB is plenty for a subgraph
 
 // Only these paths may be written — everything else is rejected. Prevents the
@@ -25,8 +26,9 @@ const MAX_BODY = 2_000_000; // 2 MB is plenty for a subgraph
 const ALLOWED = [
   /^schema\.graphql$/,
   /^subgraph\.yaml$/,
-  /^src\/[A-Za-z0-9_-]+\.ts$/,
-  /^abis\/[A-Za-z0-9_-]+\.json$/,
+  /^src\/[A-Za-z0-9_.-]+\.ts$/,
+  /^tests\/[A-Za-z0-9_.-]+\.ts$/,
+  /^abis\/[A-Za-z0-9_.-]+\.json$/,
 ];
 
 function allowedPath(p) {
@@ -79,11 +81,21 @@ async function verify(files) {
 
     // graph build: run asc over the mappings against the generated types.
     const build = await run("npx", ["--no-install", "graph", "build"], dir);
+    if (!build.ok) {
+      return { ok: false, stage: "build", timedOut: build.timedOut, log: tail(build.stderr || build.stdout) };
+    }
+
+    // graph test: run the Matchstick unit tests, if any were provided.
+    const hasTests = Object.keys(files).some((p) => p.startsWith("tests/"));
+    if (!hasTests) {
+      return { ok: true, stage: "done", log: tail(build.stdout) };
+    }
+    const test = await run("npx", ["--no-install", "graph", "test"], dir);
     return {
-      ok: build.ok,
-      stage: build.ok ? "done" : "build",
-      timedOut: build.timedOut,
-      log: build.ok ? tail(build.stdout) : tail(build.stderr || build.stdout),
+      ok: test.ok,
+      stage: test.ok ? "done" : "test",
+      timedOut: test.timedOut,
+      log: test.ok ? tail(test.stdout) : tail(test.stderr || test.stdout),
     };
   } catch (e) {
     return { ok: false, stage: "error", error: String(e?.message ?? e) };

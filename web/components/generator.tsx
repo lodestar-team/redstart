@@ -640,7 +640,7 @@ function VerifyBanner({
   if (verdict.ok) {
     return (
       <div className="border-b border-emerald-500/25 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400">
-        ✓ Compiles — <span className="text-emerald-300/80">graph codegen &amp; graph build both passed.</span>
+        ✓ Verified — <span className="text-emerald-300/80">graph codegen, build &amp; Matchstick tests all passed.</span>
       </div>
     );
   }

@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 // The browser posts the generated files here; we forward to COMPILER_URL with the
 // shared token. Keeps the VPS URL/token server-side and avoids CORS.
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const base = process.env.COMPILER_URL;
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers,
       body: JSON.stringify({ files }),
-      signal: AbortSignal.timeout(115_000),
+      signal: AbortSignal.timeout(290_000),
     });
     const data = await res.json();
     return Response.json(data, { status: res.ok ? 200 : 502 });
