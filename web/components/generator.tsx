@@ -15,6 +15,7 @@ const MCP_URL = "https://mcp.89.167.109.4.sslip.io/mcp";
 import type { ContractInfo, EventDef } from "@/lib/subgraph-abi";
 
 const KEY_STORAGE = "redstart.anthropicKey";
+const STATE_STORAGE = "redstart.generator.v1";
 
 const KIND_LABEL: Record<ContractInfo["kind"], string> = {
   erc20: "ERC-20 token",
@@ -37,12 +38,54 @@ export function Generator() {
   const [genError, setGenError] = useState<string | null>(null);
   const [generated, setGenerated] = useState<GeneratedSubgraph | null>(null);
 
+  const [hydrated, setHydrated] = useState(false);
+
   useEffect(() => {
     // Hydrate the key from sessionStorage on mount (client-only; not available
     // during SSR, so this can't be a lazy initializer without a hydration mismatch).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    /* eslint-disable react-hooks/set-state-in-effect */
     setApiKey(sessionStorage.getItem(KEY_STORAGE) ?? "");
+    // Restore the working session (contract, events, generated files) so a refresh
+    // or dropped connection doesn't start from scratch.
+    try {
+      const raw = localStorage.getItem(STATE_STORAGE);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s.address) setAddress(s.address);
+        if (s.chainId) setChainId(s.chainId);
+        if (s.contract) setContract(s.contract);
+        if (Array.isArray(s.selected)) setSelected(new Set(s.selected));
+        if (s.generated) setGenerated(s.generated);
+      }
+    } catch {
+      /* ignore corrupt snapshot */
+    }
+    setHydrated(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
+
+  // Persist the working session whenever it changes (after hydration, so the
+  // empty first render doesn't clobber a saved snapshot).
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(
+        STATE_STORAGE,
+        JSON.stringify({ address, chainId, contract, selected: [...selected], generated }),
+      );
+    } catch {
+      /* quota / serialization — non-fatal */
+    }
+  }, [hydrated, address, chainId, contract, selected, generated]);
+
+  function startOver() {
+    localStorage.removeItem(STATE_STORAGE);
+    setContract(null);
+    setGenerated(null);
+    setSelected(new Set());
+    setError(null);
+    setGenError(null);
+  }
 
   function saveKey(k: string) {
     setApiKey(k);
@@ -73,6 +116,7 @@ export function Generator() {
     setLoading(true);
     setError(null);
     setContract(null);
+    setGenerated(null);
     try {
       const res = await fetch(
         `/api/contract?address=${encodeURIComponent(address.trim())}&chainId=${chainId}`,
@@ -151,6 +195,17 @@ export function Generator() {
       {error && (
         <div className="mt-4 rounded-lg border border-red/40 bg-red/5 px-4 py-3 text-sm text-red-bright">
           {error}
+        </div>
+      )}
+
+      {contract && (
+        <div className="mt-3 text-right">
+          <button
+            onClick={startOver}
+            className="font-mono text-xs text-faint transition-colors hover:text-red-bright"
+          >
+            start over ✕
+          </button>
         </div>
       )}
 
@@ -279,8 +334,10 @@ function ContractPanel({
           </button>
         </div>
         <p className="mt-2 text-xs text-muted">
-          Your key calls Claude directly from this page. Generation runs on your account —
-          get one at{" "}
+          Your key calls Claude (<span className="text-text">Opus 4.8</span>, the most capable
+          model — best for tricky AssemblyScript) directly from this page. Generation runs on your
+          account and typically costs <span className="text-text">under $0.50 per subgraph</span>.
+          Get a key at{" "}
           <a
             href="https://console.anthropic.com/settings/keys"
             target="_blank"
