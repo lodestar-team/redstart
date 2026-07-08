@@ -56,7 +56,7 @@ jobs:
       - run: npm ci || npm install
       - run: npm run codegen
       - run: npm run build
-      # - run: npm run test   # uncomment once Matchstick tests are added
+      - run: npm run test
 `;
 
 function readme(name: string, contract: ContractInfo): string {
@@ -91,6 +91,8 @@ export function projectFiles(
     "schema.graphql": files.schema,
     "subgraph.yaml": files.manifest,
     "src/mapping.ts": files.mappings,
+    [`tests/${name.toLowerCase()}.test.ts`]: files.tests,
+    "tests/utils.ts": files.testUtils,
     [`abis/${name}.json`]: eventAbiOnly(contract),
     "package.json": packageJson(name),
     "tsconfig.json": TSCONFIG,

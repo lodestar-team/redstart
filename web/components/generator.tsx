@@ -300,6 +300,7 @@ const FILE_TABS = [
   { key: "schema", label: "schema.graphql" },
   { key: "manifest", label: "subgraph.yaml" },
   { key: "mappings", label: "src/mapping.ts" },
+  { key: "tests", label: "tests/…test.ts" },
 ] as const;
 
 function FilesPanel({

@@ -11,6 +11,8 @@ export interface GeneratedSubgraph {
   schema: string; // schema.graphql
   manifest: string; // subgraph.yaml
   mappings: string; // src/mapping.ts (AssemblyScript)
+  tests: string; // tests/<name>.test.ts (Matchstick)
+  testUtils: string; // tests/utils.ts — event factory helpers
   notes: string; // short human summary of decisions made
 }
 
@@ -22,7 +24,7 @@ const MODEL = "claude-opus-4-8";
 // The best-practices checklist, encoded as generation guardrails. Fuses The
 // Graph's official best practices, the Subgraph Linter rules, and the
 // AssemblyScript-not-TypeScript footguns.
-const SYSTEM = `You are an expert The Graph subgraph engineer. You generate a complete, best-practices, COMPILING subgraph for a single EVM contract, as three files: a GraphQL schema, a subgraph manifest (YAML), and AssemblyScript mappings.
+const SYSTEM = `You are an expert The Graph subgraph engineer. You generate a complete, best-practices, COMPILING subgraph for a single EVM contract: a GraphQL schema, a subgraph manifest (YAML), AssemblyScript mappings, and Matchstick unit tests.
 
 CRITICAL: the mappings are AssemblyScript, NOT TypeScript. AssemblyScript is a strict, statically-typed subset compiled to WebAssembly. Never emit TypeScript idioms that do not compile under \`asc\`.
 
@@ -52,7 +54,12 @@ MAPPINGS (src/mapping.ts, AssemblyScript):
 
 Match entity modelling to the contract kind (ERC-20: Account/Transfer with balances; ERC-721/1155: Token/Owner/Transfer; unknown: one immutable entity per selected event). Only index the events the user selected.
 
-Output ONLY the structured object with the four fields. \`notes\` is 1-3 short sentences on the key modelling decisions.`;
+TESTS (Matchstick — \`tests\` is tests/<name>.test.ts, \`testUtils\` is tests/utils.ts):
+- \`tests/utils.ts\`: export one factory per handled event that builds a mock event with \`newMockEvent()\`, then sets \`.parameters\` via \`new ethereum.EventParam(name, ethereum.Value.fromX(...))\` for each arg, matching the ABI types exactly (address→\`fromAddress\`, uint→\`fromUnsignedBigInt\`, bytes→\`fromBytes\`, bool→\`fromBoolean\`, string→\`fromString\`). Import \`newMockEvent\` from \`matchstick-as/assembly/index\` and \`ethereum, Address, BigInt, Bytes\` from \`@graphprotocol/graph-ts\`. Also import the generated event class(es) from \`../generated/<DataSource>/<Contract>\` and return that type (cast the mock: build a \`new XEvent(mock.address, mock.logIndex, ...)\` OR reuse the changetype pattern \`changetype<XEvent>(newMockEvent())\` then assign params).
+- \`tests/<name>.test.ts\`: import \`assert, describe, test, clearStore, beforeAll, afterAll\` from \`matchstick-as/assembly/index\`, the handler(s) from \`../src/mapping\`, and the factories from \`./utils\`. In a \`describe\`, write at least one \`test\` per handler: build a mock event with realistic-looking values, call the handler, then \`assert.entityCount(...)\` and \`assert.fieldEquals("Entity", id, "field", expected)\`. Use \`beforeAll\`/\`afterAll\` with \`clearStore()\`.
+- These are AssemblyScript too — same rules (no \`===\`, no TS idioms). They must compile under \`graph test\`.
+
+Output ONLY the structured object with all fields. \`notes\` is 1-3 short sentences on the key modelling decisions.`;
 
 const OUTPUT_SCHEMA = {
   type: "object",
@@ -60,9 +67,11 @@ const OUTPUT_SCHEMA = {
     schema: { type: "string", description: "Full contents of schema.graphql" },
     manifest: { type: "string", description: "Full contents of subgraph.yaml" },
     mappings: { type: "string", description: "Full contents of src/mapping.ts (AssemblyScript)" },
+    tests: { type: "string", description: "Full contents of tests/<name>.test.ts (Matchstick)" },
+    testUtils: { type: "string", description: "Full contents of tests/utils.ts (event factory helpers)" },
     notes: { type: "string", description: "1-3 sentences on the modelling decisions made" },
   },
-  required: ["schema", "manifest", "mappings", "notes"],
+  required: ["schema", "manifest", "mappings", "tests", "testUtils", "notes"],
   additionalProperties: false,
 };
 
@@ -112,7 +121,7 @@ export async function generateSubgraph(
   const dataSourceName = sanitizeName(contract.name);
   const body = {
     model: MODEL,
-    max_tokens: 16000,
+    max_tokens: 20000,
     system: SYSTEM,
     messages: [{ role: "user", content: buildUserMessage(contract, selectedEvents, dataSourceName) }],
     output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } },

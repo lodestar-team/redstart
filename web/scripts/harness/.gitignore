@@ -1,0 +1,6 @@
+base/node_modules/
+base/package-lock.json
+base/generated/
+base/build/
+results.json
+.work/
