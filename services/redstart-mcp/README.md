@@ -37,23 +37,31 @@ docker run -d --name redstart-mcp --restart unless-stopped \
 Front it with Caddy (auto-TLS): `mcp.<host>.sslip.io { reverse_proxy 127.0.0.1:8788 }`.
 Health: `curl localhost:8788/health`.
 
-## Connect from Claude Code
+## Connect (public — anyone, on their own Claude plan)
+
+The hosted endpoint is **public** (no token). Anyone adds it to their Claude and
+generates subgraphs on their own subscription — inference is their plan, this server
+just provides the tools. It's rate-limited per IP (40 req/min) with a compile
+concurrency cap, so it can't be turned into a compute DoS.
+
+**Claude Code:**
 
 ```bash
-claude mcp add --transport http redstart https://mcp.<host>.sslip.io/mcp \
-  --header "Authorization: Bearer <MCP_TOKEN>"
+claude mcp add --transport http redstart https://mcp.89.167.109.4.sslip.io/mcp
 ```
 
-Then, inside Claude Code: *"Use the redstart tools to build a subgraph for WETH
-(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) on Ethereum — fetch the contract, read
-the best-practices resource, write the files, and compile_subgraph until it's green."*
+**Claude Desktop / claude.ai:** Settings → Connectors → Add custom connector → the
+same URL, no auth. (claude.ai web has historically been flaky at surfacing
+custom-connector tools — Claude Code / Desktop are the reliable hosts today.)
 
-## Connect from Claude Desktop
+Then: *"Use the redstart tools to build a subgraph for WETH
+(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) on Ethereum — read the best-practices
+resource, fetch the contract, write the files, and compile_subgraph until green."*
 
-Settings → Connectors → Add custom connector → the same URL, with the
-`Authorization: Bearer <MCP_TOKEN>` header. (claude.ai web has historically been
-flaky at surfacing custom-connector tools — Claude Code / Desktop are the reliable
-hosts today.)
+### Private / self-hosted
+
+Set `MCP_TOKEN` on the container to require `Authorization: Bearer <token>` instead
+of running open.
 
 ## Smoke test
 

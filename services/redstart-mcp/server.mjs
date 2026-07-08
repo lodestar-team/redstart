@@ -139,15 +139,44 @@ async function researchContract(address, chainId) {
   };
 }
 
+// Compile is the expensive tool (a full graph build). Cap concurrency so a public
+// endpoint can't be turned into a compute DoS.
+let compiling = 0;
+const MAX_COMPILE = 3;
 async function compile(files) {
-  const headers = { "content-type": "application/json" };
-  if (VERIFIER_TOKEN) headers.authorization = `Bearer ${VERIFIER_TOKEN}`;
-  const res = await fetch(`${VERIFIER_URL.replace(/\/$/, "")}/verify`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ files }),
-  });
-  return res.json();
+  if (compiling >= MAX_COMPILE) {
+    return { ok: false, stage: "busy", error: "Too many concurrent compiles right now — try again in a moment." };
+  }
+  compiling++;
+  try {
+    const headers = { "content-type": "application/json" };
+    if (VERIFIER_TOKEN) headers.authorization = `Bearer ${VERIFIER_TOKEN}`;
+    const res = await fetch(`${VERIFIER_URL.replace(/\/$/, "")}/verify`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ files }),
+    });
+    return res.json();
+  } finally {
+    compiling--;
+  }
+}
+
+// Per-IP rate limit (sliding window) — protects the Etherscan key + compile box.
+const RL = new Map();
+const RL_MAX = 40;
+const RL_WINDOW = 60_000;
+function rateLimited(ip) {
+  const now = Date.now();
+  const arr = (RL.get(ip) ?? []).filter((t) => now - t < RL_WINDOW);
+  if (arr.length >= RL_MAX) {
+    RL.set(ip, arr);
+    return true;
+  }
+  arr.push(now);
+  RL.set(ip, arr);
+  if (RL.size > 20_000) RL.clear();
+  return false;
 }
 
 const BEST_PRACTICES = `# Redstart subgraph best-practices (follow these when generating)
@@ -299,6 +328,12 @@ const httpServer = http.createServer(async (req, res) => {
   if (MCP_TOKEN && req.headers.authorization !== `Bearer ${MCP_TOKEN}`) {
     res.writeHead(401, cors);
     return res.end("unauthorized");
+  }
+  // Public endpoint (no token): rate-limit per client IP.
+  const ip = (req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (rateLimited(ip)) {
+    res.writeHead(429, { "retry-after": "30", ...cors });
+    return res.end("rate limited — slow down");
   }
   for (const [k, v] of Object.entries(cors)) res.setHeader(k, v);
   const sessionId = req.headers["mcp-session-id"];
