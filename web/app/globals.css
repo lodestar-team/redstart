@@ -189,4 +189,35 @@
     from { transform: translateY(0); }
     to { transform: translateY(-12px); }
   }
+
+  /* Indeterminate progress bar sweep */
+  @keyframes loadbar {
+    0% { transform: translateX(-110%); }
+    100% { transform: translateX(460%); }
+  }
+  .loadbar {
+    animation: loadbar 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  /* Shimmering skeleton placeholder */
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .skel {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.035) 25%,
+      rgba(255, 255, 255, 0.09) 37%,
+      rgba(255, 255, 255, 0.035) 63%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: 6px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .loadbar,
+    .skel {
+      animation: none;
+    }
+  }
 }

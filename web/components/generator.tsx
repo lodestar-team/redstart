@@ -5,6 +5,7 @@ import { CHAINS, DEFAULT_CHAIN_ID } from "@/lib/chains";
 import { type AnthropicError, generateSubgraph, type GeneratedSubgraph } from "@/lib/generate";
 import { sanitizeName } from "@/lib/generate";
 import { connectGitHub, type CreatedRepo, createSubgraphRepo } from "@/lib/github";
+import { highlight } from "@/lib/highlight";
 import { downloadProject, projectFiles, type VerifyResult, verifyProject } from "@/lib/project";
 
 // GitHub OAuth client id (public). Inlined at build time — a NEXT_PUBLIC change
@@ -386,6 +387,8 @@ function ContractPanel({
         </details>
       </div>
 
+      {generating && <GeneratingPanel />}
+
       {genError && (
         <div className="rounded-lg border border-red/40 bg-red/5 px-4 py-3 text-sm text-red-bright">
           {genError}
@@ -398,10 +401,10 @@ function ContractPanel({
 }
 
 const FILE_TABS = [
-  { key: "schema", label: "schema.graphql" },
-  { key: "manifest", label: "subgraph.yaml" },
-  { key: "mappings", label: "src/mapping.ts" },
-  { key: "tests", label: "tests/…test.ts" },
+  { key: "schema", label: "schema.graphql", lang: "graphql" },
+  { key: "manifest", label: "subgraph.yaml", lang: "yaml" },
+  { key: "mappings", label: "src/mapping.ts", lang: "ts" },
+  { key: "tests", label: "tests/…test.ts", lang: "ts" },
 ] as const;
 
 function FilesPanel({
@@ -421,6 +424,7 @@ function FilesPanel({
     () => `${sanitizeName(contract.name).toLowerCase()}-subgraph`,
   );
   const body = files[tab];
+  const lang = FILE_TABS.find((t) => t.key === tab)!.lang;
 
   async function createRepo() {
     if (!GITHUB_CLIENT_ID || ghBusy || !repoName.trim()) return;
@@ -484,9 +488,10 @@ function FilesPanel({
         </div>
         <CopyButton text={body} />
       </div>
-      <pre className="max-h-[28rem] overflow-auto p-4 font-mono text-xs leading-relaxed text-text">
-        {body}
-      </pre>
+      <pre
+        className="max-h-[28rem] overflow-auto p-4 font-mono text-xs leading-relaxed text-text"
+        dangerouslySetInnerHTML={{ __html: highlight(body, lang) }}
+      />
       <div className="border-t border-line px-4 py-3">
         {ghRepo ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -550,6 +555,66 @@ function FilesPanel({
   );
 }
 
+const GEN_STEPS = [
+  "Reading the ABI & events",
+  "Modelling entities & relations",
+  "Writing AssemblyScript handlers",
+  "Generating Matchstick tests",
+  "Finalising the subgraph",
+];
+
+function GeneratingPanel() {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setStep((s) => (s < GEN_STEPS.length - 1 ? s + 1 : s)), 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="h-[3px] w-full overflow-hidden bg-line">
+        <div className="loadbar h-full w-1/4 rounded-full bg-gradient-to-r from-red via-ember to-red" />
+      </div>
+      <div className="p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-red/25 border-t-red" />
+          <div>
+            <p className="text-sm text-text">Generating with Claude Opus 4.8…</p>
+            <p className="text-xs text-faint">
+              Writing best-practices AssemblyScript — usually 20–60s.
+            </p>
+          </div>
+        </div>
+        <ul className="space-y-2">
+          {GEN_STEPS.map((s, i) => (
+            <li key={s} className="flex items-center gap-2.5 text-sm">
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                {i < step ? (
+                  <span className="text-emerald-400">✓</span>
+                ) : i === step ? (
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ember opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-ember" />
+                  </span>
+                ) : (
+                  <span className="h-2 w-2 rounded-full border border-line-2" />
+                )}
+              </span>
+              <span className={i <= step ? "text-muted" : "text-faint"}>{s}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-5 space-y-2">
+          <div className="skel h-3 w-1/3" />
+          <div className="skel h-3 w-2/3" />
+          <div className="skel h-3 w-1/2" />
+          <div className="skel h-3 w-3/5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VerifyBanner({
   verifying,
   verdict,
@@ -559,9 +624,14 @@ function VerifyBanner({
 }) {
   if (verifying) {
     return (
-      <div className="flex items-center gap-2 border-b border-line bg-surface px-4 py-2.5 text-sm text-muted">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-ember" />
-        Compiling with the real Graph toolchain…
+      <div className="border-b border-line">
+        <div className="h-[3px] w-full overflow-hidden bg-line">
+          <div className="loadbar h-full w-1/4 rounded-full bg-gradient-to-r from-ember via-red to-ember" />
+        </div>
+        <div className="flex items-center gap-2.5 bg-surface px-4 py-2.5 text-sm text-muted">
+          <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-ember/25 border-t-ember" />
+          Compiling on the real Graph toolchain — running codegen, build &amp; test…
+        </div>
       </div>
     );
   }
