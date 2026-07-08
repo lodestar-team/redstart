@@ -1,0 +1,12 @@
+{
+  "name": "redstart-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Remote MCP server — drive The Generator from inside Claude (Max plan). Tools: fetch_contract, compile_subgraph.",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  }
+}
