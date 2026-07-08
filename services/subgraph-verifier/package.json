@@ -1,0 +1,10 @@
+{
+  "name": "subgraph-verifier",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated sandbox that runs the real `graph codegen && graph build` on a generated subgraph and reports whether it compiles.",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "verifier-base",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pre-installed base project the verifier copies per job (graph-cli + graph-ts). Generated files are written on top, then `graph codegen && graph build` runs.",
+  "dependencies": {
+    "@graphprotocol/graph-cli": "0.97.1",
+    "@graphprotocol/graph-ts": "0.38.0"
+  }
+}

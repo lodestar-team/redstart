@@ -13,6 +13,12 @@ export function Nav() {
         </Link>
         <nav className="-mr-2 flex items-center text-sm text-muted sm:mr-0 sm:gap-1">
           <Link
+            href="/generator"
+            className="rounded-md px-2.5 py-1.5 transition-colors hover:bg-surface hover:text-text sm:px-3"
+          >
+            Generator
+          </Link>
+          <Link
             href="/playground"
             className="rounded-md px-2.5 py-1.5 transition-colors hover:bg-surface hover:text-text sm:px-3"
           >

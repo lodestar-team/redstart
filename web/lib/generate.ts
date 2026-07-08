@@ -1,0 +1,174 @@
+// Client-side subgraph generation via the user's own Anthropic key (BYOK).
+//
+// The request is made directly from the browser with the documented
+// `anthropic-dangerous-direct-browser-access` header, so the key never touches
+// our server. Structured outputs (`output_config.format`) force a clean JSON
+// object with the three subgraph files — no markdown-fence parsing.
+
+import type { ContractInfo, EventDef } from "./subgraph-abi";
+
+export interface GeneratedSubgraph {
+  schema: string; // schema.graphql
+  manifest: string; // subgraph.yaml
+  mappings: string; // src/mapping.ts (AssemblyScript)
+  notes: string; // short human summary of decisions made
+}
+
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+// Opus 4.8: most capable; adaptive-thinking family. We omit `thinking` for a
+// fast single-shot codegen call, and never send temperature/top_p (they 400 on 4.8).
+const MODEL = "claude-opus-4-8";
+
+// The best-practices checklist, encoded as generation guardrails. Fuses The
+// Graph's official best practices, the Subgraph Linter rules, and the
+// AssemblyScript-not-TypeScript footguns.
+const SYSTEM = `You are an expert The Graph subgraph engineer. You generate a complete, best-practices, COMPILING subgraph for a single EVM contract, as three files: a GraphQL schema, a subgraph manifest (YAML), and AssemblyScript mappings.
+
+CRITICAL: the mappings are AssemblyScript, NOT TypeScript. AssemblyScript is a strict, statically-typed subset compiled to WebAssembly. Never emit TypeScript idioms that do not compile under \`asc\`.
+
+SCHEMA (schema.graphql):
+- Use \`Bytes!\` for IDs derived from addresses or hashes; never concatenate strings for a single-value id.
+- Mark event-log/append-only entities \`@entity(immutable: true)\`. Use mutable entities only where state genuinely updates (balances, owners, counters).
+- Model one-to-many relations with \`@derivedFrom(field: "...")\`; never store a growing array on the parent.
+- Every non-null, non-derived field must be initialised before \`.save()\`.
+
+MANIFEST (subgraph.yaml):
+- specVersion 1.2.0; schema file schema.graphql; dataSources kind ethereum/contract.
+- \`network\` exactly as provided. \`source.address\`, \`source.abi\`, and \`source.startBlock\` exactly as provided.
+- Add \`indexerHints:\\n  prune: auto\` at the top level.
+- mapping apiVersion 0.0.9, language wasm/assemblyscript, file ./src/mapping.ts.
+- One eventHandler per selected event, with the EXACT event signature (from the ABI) and a handler function name like \`handleTransfer\`.
+- Prefer event handlers only (no call/block handlers).
+
+MAPPINGS (src/mapping.ts, AssemblyScript):
+- Import generated event classes from ../generated/<DataSourceName>/<ContractName> and entity classes from ../generated/schema, plus BigInt/Bytes/etc. from @graphprotocol/graph-ts as needed.
+- Use \`==\`, never \`===\` (AssemblyScript has no strict equality).
+- Never force-unwrap \`Entity.load(id)!\`; load, null-check, and construct if null (loadOrCreate pattern).
+- Guard nullable arithmetic; initialise BigInt fields with \`BigInt.zero()\`.
+- \`.save()\` after every mutation. Never leave a required field unset before save.
+- Use \`try_\` variants for any contract call and handle \`.reverted\`; avoid eth_calls entirely when the data is already in the event args; never call a contract inside a loop.
+- No \`console.log\` (it traps at runtime); use \`log.info\`/\`log.warning\` from graph-ts if logging.
+- Derive a Bytes id for event-log entities from \`event.transaction.hash.concatI32(event.logIndex.toI32())\`.
+
+Match entity modelling to the contract kind (ERC-20: Account/Transfer with balances; ERC-721/1155: Token/Owner/Transfer; unknown: one immutable entity per selected event). Only index the events the user selected.
+
+Output ONLY the structured object with the four fields. \`notes\` is 1-3 short sentences on the key modelling decisions.`;
+
+const OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    schema: { type: "string", description: "Full contents of schema.graphql" },
+    manifest: { type: "string", description: "Full contents of subgraph.yaml" },
+    mappings: { type: "string", description: "Full contents of src/mapping.ts (AssemblyScript)" },
+    notes: { type: "string", description: "1-3 sentences on the modelling decisions made" },
+  },
+  required: ["schema", "manifest", "mappings", "notes"],
+  additionalProperties: false,
+};
+
+function buildUserMessage(
+  contract: ContractInfo,
+  selectedEvents: EventDef[],
+  dataSourceName: string,
+): string {
+  const events = selectedEvents
+    .map(
+      (e) =>
+        `- ${e.signature}  [inputs: ${e.inputs.map((i) => `${i.type}${i.indexed ? " indexed" : ""} ${i.name}`).join(", ") || "none"}]`,
+    )
+    .join("\n");
+
+  return `Generate a subgraph for this contract.
+
+Contract name: ${contract.name}
+Kind: ${contract.kind}
+Data source name (use for the manifest name and the generated import path): ${dataSourceName}
+Address (index at this address): ${contract.address}
+Network: ${contract.graphNetwork}
+Start block: ${contract.startBlock ?? "0 (unknown — use 0)"}
+${contract.isProxy ? `Proxy: yes — implementation ${contract.implementation}. Index the proxy address with the implementation ABI.` : ""}
+
+Events to index (${selectedEvents.length}):
+${events || "(none — this should not happen)"}
+
+Full ABI (JSON):
+${JSON.stringify(contract.abi)}`;
+}
+
+export interface AnthropicError {
+  status: number;
+  message: string;
+}
+
+/**
+ * Call the Anthropic Messages API directly from the browser with the user's key.
+ * Returns the generated subgraph, or throws an {@link AnthropicError}.
+ */
+export async function generateSubgraph(
+  apiKey: string,
+  contract: ContractInfo,
+  selectedEvents: EventDef[],
+): Promise<GeneratedSubgraph> {
+  const dataSourceName = sanitizeName(contract.name);
+  const body = {
+    model: MODEL,
+    max_tokens: 16000,
+    system: SYSTEM,
+    messages: [{ role: "user", content: buildUserMessage(contract, selectedEvents, dataSourceName) }],
+    output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
+  };
+
+  const res = await fetch(ANTHROPIC_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    const message =
+      data?.error?.message ?? `Anthropic API error (${res.status}).`;
+    throw { status: res.status, message } as AnthropicError;
+  }
+
+  if (data.stop_reason === "refusal") {
+    throw { status: 200, message: "The model declined this request." } as AnthropicError;
+  }
+  if (data.stop_reason === "max_tokens") {
+    throw {
+      status: 200,
+      message: "Generation was cut off (max tokens). Try fewer events.",
+    } as AnthropicError;
+  }
+
+  const text: string | undefined = data?.content?.find(
+    (b: { type: string; text?: string }) => b.type === "text",
+  )?.text;
+  if (!text) {
+    throw { status: 200, message: "Empty response from the model." } as AnthropicError;
+  }
+
+  try {
+    return JSON.parse(text) as GeneratedSubgraph;
+  } catch {
+    throw {
+      status: 200,
+      message: "Could not parse the generated files. Try again.",
+    } as AnthropicError;
+  }
+}
+
+/** A safe PascalCase data-source/contract name for the manifest and imports. */
+export function sanitizeName(raw: string): string {
+  const cleaned = raw.replace(/[^A-Za-z0-9]/g, " ").trim();
+  const pascal = cleaned
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join("");
+  return /^[A-Za-z]/.test(pascal) ? pascal : `Contract${pascal}`;
+}
