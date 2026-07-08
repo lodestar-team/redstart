@@ -14,12 +14,15 @@ export function Footer() {
             <span className="font-medium tracking-tight">Redstart</span>
           </span>
           <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted">
-            One typed language for The Graph subgraphs. A Graph-Foundation-grant
-            public good, in the lineage of Matchstick.
+            One typed language for The Graph subgraphs. An open-source public
+            good, in the lineage of Matchstick.
           </p>
         </div>
         <div className="flex flex-col gap-2 text-sm text-muted">
           <span className="eyebrow mb-1">Product</span>
+          <Link href="/generator" className="transition-colors hover:text-text">
+            Generator
+          </Link>
           <Link href="/playground" className="transition-colors hover:text-text">
             Playground
           </Link>
