@@ -322,14 +322,14 @@ function FilesPanel({
   const [ghBusy, setGhBusy] = useState(false);
   const [ghError, setGhError] = useState<string | null>(null);
   const [ghRepo, setGhRepo] = useState<CreatedRepo | null>(null);
+  const [repoName, setRepoName] = useState(
+    () => `${sanitizeName(contract.name).toLowerCase()}-subgraph`,
+  );
   const body = files[tab];
 
   async function createRepo() {
-    if (!GITHUB_CLIENT_ID || ghBusy) return;
+    if (!GITHUB_CLIENT_ID || ghBusy || !repoName.trim()) return;
     setGhError(null);
-    const suggested = `${sanitizeName(contract.name).toLowerCase()}-subgraph`;
-    const repoName = window.prompt("New repository name:", suggested);
-    if (!repoName) return;
     setGhBusy(true);
     try {
       const token = await connectGitHub(GITHUB_CLIENT_ID);
@@ -427,9 +427,22 @@ function FilesPanel({
                 Download .zip
               </button>
               {GITHUB_CLIENT_ID && (
-                <button onClick={createRepo} disabled={ghBusy} className="btn disabled:opacity-50">
-                  {ghBusy ? "Creating repo…" : "Create GitHub repo"}
-                </button>
+                <>
+                  <input
+                    value={repoName}
+                    onChange={(e) => setRepoName(e.target.value)}
+                    aria-label="Repository name"
+                    spellCheck={false}
+                    className="w-44 rounded-lg border border-line-2 bg-bg-2 px-2.5 py-2 font-mono text-xs text-text outline-none focus:border-red"
+                  />
+                  <button
+                    onClick={createRepo}
+                    disabled={ghBusy || !repoName.trim()}
+                    className="btn disabled:opacity-50"
+                  >
+                    {ghBusy ? "Creating repo…" : "Create GitHub repo"}
+                  </button>
+                </>
               )}
             </div>
           </div>
