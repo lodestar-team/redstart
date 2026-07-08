@@ -58,7 +58,18 @@ async function gh(token: string, path: string, body?: unknown) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data?.message ?? `GitHub API ${res.status}`);
+    // GitHub's top-level `message` is often generic ("Repository creation failed.");
+    // the real reason is in `errors[]`. Surface both so failures are actionable.
+    const detail = Array.isArray(data?.errors)
+      ? data.errors
+          .map((e: { message?: string; field?: string; code?: string }) =>
+            e.message ?? [e.field, e.code].filter(Boolean).join(" "),
+          )
+          .filter(Boolean)
+          .join("; ")
+      : "";
+    const msg = [data?.message, detail].filter(Boolean).join(" — ") || `GitHub API ${res.status}`;
+    throw new Error(msg);
   }
   return data;
 }
