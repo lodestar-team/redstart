@@ -10,6 +10,8 @@ import { downloadProject, projectFiles, type VerifyResult, verifyProject } from 
 // GitHub OAuth client id (public). Inlined at build time — a NEXT_PUBLIC change
 // requires a fresh compile of this module (touch the source to bust the cache).
 const GITHUB_CLIENT_ID = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
+// Public MCP endpoint — the "use your Claude plan" power path.
+const MCP_URL = "https://mcp.89.167.109.4.sslip.io/mcp";
 import type { ContractInfo, EventDef } from "@/lib/subgraph-abi";
 
 const KEY_STORAGE = "redstart.anthropicKey";
@@ -289,6 +291,42 @@ function ContractPanel({
           </a>
           .
         </p>
+
+        <details className="mt-3 border-t border-line pt-3">
+          <summary className="cursor-pointer text-xs text-red-bright hover:underline">
+            No API key? Use your Claude subscription instead →
+          </summary>
+          <div className="mt-2 space-y-2 text-xs text-muted">
+            <p>
+              Connect The Generator&apos;s <span className="text-text">MCP server</span> to{" "}
+              <span className="text-text">Claude Code</span> or{" "}
+              <span className="text-text">Claude Desktop</span> and generate from inside your
+              own Claude — the inference runs on <span className="text-text">your Max/Pro plan</span>,
+              no API key, no per-token cost.
+            </p>
+            <p className="text-faint">Claude Code — one command:</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 overflow-x-auto rounded-md border border-line-2 bg-bg-2 px-2.5 py-2 font-mono text-[0.7rem] text-text">
+                claude mcp add --transport http redstart {MCP_URL}
+              </code>
+              <CopyButton text={`claude mcp add --transport http redstart ${MCP_URL}`} />
+            </div>
+            <p>
+              Then ask Claude:{" "}
+              <span className="text-muted">
+                &ldquo;use the redstart tools to build a subgraph for &lt;address&gt; — fetch the
+                contract, read the best-practices resource, then compile_subgraph until it&apos;s
+                green.&rdquo;
+              </span>{" "}
+              Your Claude does the work; the server gives it contract research and the real compile
+              gate.
+            </p>
+            <p className="text-faint">
+              Works best in Claude Code / Desktop. claude.ai web can be flaky at surfacing custom
+              connectors.
+            </p>
+          </div>
+        </details>
       </div>
 
       {genError && (
