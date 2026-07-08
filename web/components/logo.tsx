@@ -1,5 +1,5 @@
-// A redstart is a bird (red-tailed songbird). Stylised swift-in-flight mark,
-// with an optional ember-red tail accent.
+// A redstart is a small songbird whose signature is its rusty-red tail
+// ("start" = old English for tail). Perched-bird mark with an ember tail accent.
 export function Bird({
   className = "",
   glow = false,
@@ -14,16 +14,22 @@ export function Bird({
       className={className}
       style={glow ? { filter: "drop-shadow(0 0 10px rgba(255,51,85,0.55))" } : undefined}
     >
-      {/* wings + body */}
+      {/* rusty tail */}
       <path
-        d="M16 17c-3.3 0-6.6-1.9-9-5-1-1.3-2.4-2.2-4-2.4 1.9-1.2 4-1 5.8.1 1.7 1 3.4 2 5.4 2.2-1.4-1.2-2.2-2.8-2.3-4.7 1.1 1.2 2.3 1.9 3.6 2.1.4-2.2 1.6-4 3.5-5.3-.2 1.3 0 2.5.6 3.6.6-1.1 1.5-2 2.7-2.6-.2 1.1-.1 2.1.3 3.1 1.1-.9 2.4-1.4 3.9-1.4-1 .8-1.6 1.8-1.8 3 1.6-.3 3.2 0 4.8 1-1.7.1-3 .9-4 2.3-2.3 3.1-5.6 5-9 5z"
-        fill="currentColor"
-      />
-      {/* red tail flick */}
-      <path
-        d="M16 17c-1.1 1.9-2.7 3.2-4.8 3.9 1.3-1.6 2-3.2 2.2-4.9 1 .6 1.8.9 2.6 1z"
+        d="M15.6 21 L13.9 28.4 L19.4 26.8 L18.4 20.4 Z"
         fill="var(--color-ember, #ff7a45)"
       />
+      {/* head */}
+      <circle cx="13.4" cy="11" r="4.7" fill="currentColor" />
+      {/* body */}
+      <path
+        d="M9.4 14 C8.9 18.4 11.4 22.4 15.4 22.4 C19.7 22.4 21.2 17.9 19.8 14.1 C18.7 11.5 15.8 10.3 13.4 11.3 Z"
+        fill="currentColor"
+      />
+      {/* beak */}
+      <path d="M9.2 10.2 L4.4 9.7 L9.4 12.3 Z" fill="currentColor" />
+      {/* eye */}
+      <circle cx="11.5" cy="10" r="1.15" fill="#0d0d14" />
     </svg>
   );
 }
