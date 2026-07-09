@@ -45,7 +45,13 @@ export function connectGitHub(clientId: string): Promise<string> {
   });
 }
 
-async function gh(token: string, path: string, body?: unknown, method?: string) {
+async function gh(
+  token: string,
+  path: string,
+  body?: unknown,
+  method?: string,
+  label?: string,
+) {
   const res = await fetch(`${GH_API}${path}`, {
     method: method ?? (body ? "POST" : "GET"),
     headers: {
@@ -68,10 +74,28 @@ async function gh(token: string, path: string, body?: unknown, method?: string) 
           .filter(Boolean)
           .join("; ")
       : "";
-    const msg = [data?.message, detail].filter(Boolean).join(" — ") || `GitHub API ${res.status}`;
+    // A 404/403 here is almost always a missing/cached scope. Surface which step
+    // failed and what scopes the token actually carries, so it's actionable.
+    const scopes = res.headers.get("x-oauth-scopes");
+    const hint =
+      (res.status === 404 || res.status === 403) && !hasRepoScope(scopes)
+        ? ` — your GitHub token is missing repo access (scopes: ${scopes || "none"}). Revoke Redstart at github.com/settings/applications, then reconnect and approve the repository permission.`
+        : "";
+    const where = label ? `${label}: ` : "";
+    const msg =
+      where +
+      ([data?.message, detail].filter(Boolean).join(" — ") || `GitHub API ${res.status}`) +
+      hint;
     throw new Error(msg);
   }
   return data;
+}
+
+/** Whether an X-OAuth-Scopes header grants repo creation (`repo` or `public_repo`). */
+function hasRepoScope(scopes: string | null): boolean {
+  if (!scopes) return false;
+  const set = scopes.split(",").map((s) => s.trim());
+  return set.includes("repo") || set.includes("public_repo");
 }
 
 export interface CreatedRepo {
@@ -86,15 +110,38 @@ export async function createSubgraphRepo(
   files: Record<string, string>,
   description: string,
 ): Promise<CreatedRepo> {
+  // 0. Preflight: confirm the token is live and actually carries repo scope. A
+  // cached OAuth grant can hand back a token missing `public_repo`, which makes
+  // `POST /user/repos` return a bare "404 Not Found" — check up front so the
+  // error is "reconnect and approve repo access", not a mystery.
+  const meRes = await fetch(`${GH_API}/user`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/vnd.github+json",
+      "x-github-api-version": "2022-11-28",
+    },
+  });
+  if (!meRes.ok) {
+    throw new Error(
+      `auth check: GitHub ${meRes.status} — the connection didn't stick. Disconnect and reconnect GitHub.`,
+    );
+  }
+  if (!hasRepoScope(meRes.headers.get("x-oauth-scopes"))) {
+    throw new Error(
+      `Your GitHub token can't create repositories (scopes: ${meRes.headers.get("x-oauth-scopes") || "none"}). Revoke Redstart at github.com/settings/applications, then reconnect and approve the repository permission.`,
+    );
+  }
+
   // 1. Create the repo with an initial commit. `auto_init: true` is required —
   // the Git Data API can't create blobs/trees on a bare repo ("Git Repository is
   // empty"), so GitHub must lay down a first commit to initialise the git backend.
-  const repo = await gh(token, "/user/repos", {
-    name: repoName,
-    description,
-    private: false,
-    auto_init: true,
-  });
+  const repo = await gh(
+    token,
+    "/user/repos",
+    { name: repoName, description, private: false, auto_init: true },
+    "POST",
+    "create repo",
+  );
   const owner: string = repo.owner.login;
   const name: string = repo.name;
   const branch: string = repo.default_branch || "main";
@@ -104,7 +151,7 @@ export async function createSubgraphRepo(
   let ref;
   for (let i = 0; ; i++) {
     try {
-      ref = await gh(token, `/repos/${owner}/${name}/git/ref/heads/${branch}`);
+      ref = await gh(token, `/repos/${owner}/${name}/git/ref/heads/${branch}`, undefined, undefined, "read branch");
       break;
     } catch (e) {
       if (i >= 4) throw e;
