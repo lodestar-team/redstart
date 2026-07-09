@@ -440,6 +440,7 @@ function FilesPanel({
   const [fixStatus, setFixStatus] = useState<string | null>(null);
   const [fixError, setFixError] = useState<string | null>(null);
   const [ghBusy, setGhBusy] = useState(false);
+  const [ghPhase, setGhPhase] = useState<"connect" | "push" | null>(null);
   const [ghError, setGhError] = useState<string | null>(null);
   const [ghRepo, setGhRepo] = useState<CreatedRepo | null>(null);
   const [repoName, setRepoName] = useState(
@@ -494,8 +495,12 @@ function FilesPanel({
     if (!GITHUB_CLIENT_ID || ghBusy || !repoName.trim()) return;
     setGhError(null);
     setGhBusy(true);
+    setGhPhase("connect");
     try {
+      // A popup opens on GitHub — the user signs in (if needed) and clicks Authorize.
+      // The button says "Waiting for GitHub…" so this isn't mistaken for a hang.
       const token = await connectGitHub(GITHUB_CLIENT_ID);
+      setGhPhase("push");
       const repo = await createSubgraphRepo(
         token,
         repoName.trim(),
@@ -504,9 +509,17 @@ function FilesPanel({
       );
       setGhRepo(repo);
     } catch (e) {
-      setGhError((e as Error).message);
+      const msg = (e as Error).message;
+      // The popup-closed case almost always means the sign-in/Authorize wasn't
+      // finished — say so, rather than the bare "Window closed".
+      setGhError(
+        /window closed/i.test(msg)
+          ? "Authorization cancelled — in the GitHub popup, sign in and click Authorize (grant repository access), then try again."
+          : msg,
+      );
     } finally {
       setGhBusy(false);
+      setGhPhase(null);
     }
   }
 
@@ -629,12 +642,22 @@ function FilesPanel({
                     disabled={ghBusy || !repoName.trim()}
                     className="btn disabled:opacity-50"
                   >
-                    {ghBusy ? "Creating repo…" : "Create GitHub repo"}
+                    {ghPhase === "connect"
+                      ? "Waiting for GitHub…"
+                      : ghPhase === "push"
+                        ? "Creating repo…"
+                        : "Create GitHub repo"}
                   </button>
                 </>
               )}
             </div>
           </div>
+        )}
+        {ghPhase === "connect" && (
+          <p className="mt-2 text-xs text-muted">
+            A GitHub popup opened — sign in if needed and click <strong>Authorize</strong> (grant
+            repository access). Keep it open until it closes itself.
+          </p>
         )}
         {ghError && (
           <p className="mt-2 text-xs text-red-bright">GitHub: {ghError}</p>
