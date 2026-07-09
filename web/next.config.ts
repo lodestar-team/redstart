@@ -5,7 +5,8 @@ const nextConfig: NextConfig = {
   // server has moved on to a newer deployment (see VersionWatcher). Vercel sets
   // VERCEL_GIT_COMMIT_SHA at build time; "dev" locally.
   env: {
-    NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA || "dev",
+    NEXT_PUBLIC_BUILD_ID:
+      process.env.NEXT_PUBLIC_BUILD_ID || process.env.VERCEL_GIT_COMMIT_SHA || "dev",
   },
 };
 

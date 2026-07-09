@@ -5,7 +5,7 @@
 export const dynamic = "force-dynamic";
 
 export function GET(): Response {
-  const id = process.env.VERCEL_GIT_COMMIT_SHA || "dev";
+  const id = process.env.APP_BUILD_ID || process.env.VERCEL_GIT_COMMIT_SHA || "dev";
   return new Response(JSON.stringify({ id }), {
     headers: {
       "content-type": "application/json",
