@@ -3,6 +3,8 @@ import { Bird } from "./logo";
 
 const REPO = "https://github.com/lodestar-team/redstart";
 const DOCS = "https://lodestar-team.github.io/redstart/";
+// Short build id so you can eyeball which deploy a browser is actually running.
+const BUILD = (process.env.NEXT_PUBLIC_BUILD_ID || "dev").slice(0, 7);
 
 export function Footer() {
   return (
@@ -46,7 +48,9 @@ export function Footer() {
       <div className="border-t border-line">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 text-xs text-faint">
           <span>MIT licensed · The Lodestar Team</span>
-          <span className="font-mono">redstart-lang.com</span>
+          <span className="font-mono">
+            redstart-lang.com <span className="text-faint/60">· build {BUILD}</span>
+          </span>
         </div>
       </div>
     </footer>

@@ -6,6 +6,7 @@ import "./globals.css";
 import { Nav } from "@/components/nav";
 import { Footer } from "@/components/footer";
 import { Cosmos } from "@/components/cosmos";
+import { VersionWatcher } from "@/components/version-watcher";
 
 const display = Space_Grotesk({
   variable: "--font-display",
@@ -52,6 +53,7 @@ export default function RootLayout({
         <Nav />
         <main className="relative flex-1">{children}</main>
         <Footer />
+        <VersionWatcher />
       </body>
     </html>
   );
