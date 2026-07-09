@@ -29,8 +29,9 @@ const SYSTEM = `You are an expert The Graph subgraph engineer. You generate a co
 CRITICAL: the mappings are AssemblyScript, NOT TypeScript. AssemblyScript is a strict, statically-typed subset compiled to WebAssembly. Never emit TypeScript idioms that do not compile under \`asc\`.
 
 SCHEMA (schema.graphql):
+- EVERY \`@entity\` MUST carry an explicit immutable argument — \`@entity(immutable: true)\` or \`@entity(immutable: false)\`. A bare \`@entity\` is REJECTED ("@entity directive requires \`immutable\` argument").
 - Use \`Bytes!\` for IDs derived from addresses or hashes; never concatenate strings for a single-value id.
-- Mark event-log/append-only entities \`@entity(immutable: true)\`. Use mutable entities only where state genuinely updates (balances, owners, counters).
+- Mark event-log/append-only entities \`@entity(immutable: true)\`; use \`@entity(immutable: false)\` where state genuinely updates (balances, owners, counters).
 - Model one-to-many relations with \`@derivedFrom(field: "...")\`; never store a growing array on the parent.
 - Every non-null, non-derived field must be initialised before \`.save()\`.
 
@@ -109,24 +110,8 @@ export interface AnthropicError {
   message: string;
 }
 
-/**
- * Call the Anthropic Messages API directly from the browser with the user's key.
- * Returns the generated subgraph, or throws an {@link AnthropicError}.
- */
-export async function generateSubgraph(
-  apiKey: string,
-  contract: ContractInfo,
-  selectedEvents: EventDef[],
-): Promise<GeneratedSubgraph> {
-  const dataSourceName = sanitizeName(contract.name);
-  const body = {
-    model: MODEL,
-    max_tokens: 20000,
-    system: SYSTEM,
-    messages: [{ role: "user", content: buildUserMessage(contract, selectedEvents, dataSourceName) }],
-    output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
-  };
-
+/** One structured-output call to Claude, returning the parsed subgraph files. */
+async function callClaude(apiKey: string, userMessage: string): Promise<GeneratedSubgraph> {
   const res = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: {
@@ -135,41 +120,88 @@ export async function generateSubgraph(
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 20000,
+      system: SYSTEM,
+      messages: [{ role: "user", content: userMessage }],
+      output_config: { format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
+    }),
   });
 
   const data = await res.json();
   if (!res.ok) {
-    const message =
-      data?.error?.message ?? `Anthropic API error (${res.status}).`;
-    throw { status: res.status, message } as AnthropicError;
+    throw { status: res.status, message: data?.error?.message ?? `Anthropic API error (${res.status}).` } as AnthropicError;
   }
-
   if (data.stop_reason === "refusal") {
     throw { status: 200, message: "The model declined this request." } as AnthropicError;
   }
   if (data.stop_reason === "max_tokens") {
-    throw {
-      status: 200,
-      message: "Generation was cut off (max tokens). Try fewer events.",
-    } as AnthropicError;
+    throw { status: 200, message: "Response was cut off (max tokens). Try fewer events." } as AnthropicError;
   }
-
   const text: string | undefined = data?.content?.find(
     (b: { type: string; text?: string }) => b.type === "text",
   )?.text;
-  if (!text) {
-    throw { status: 200, message: "Empty response from the model." } as AnthropicError;
-  }
-
+  if (!text) throw { status: 200, message: "Empty response from the model." } as AnthropicError;
   try {
     return JSON.parse(text) as GeneratedSubgraph;
   } catch {
-    throw {
-      status: 200,
-      message: "Could not parse the generated files. Try again.",
-    } as AnthropicError;
+    throw { status: 200, message: "Could not parse the model's response. Try again." } as AnthropicError;
   }
+}
+
+/**
+ * Generate a subgraph from a contract, client-side with the user's key.
+ * @throws {@link AnthropicError}
+ */
+export async function generateSubgraph(
+  apiKey: string,
+  contract: ContractInfo,
+  selectedEvents: EventDef[],
+): Promise<GeneratedSubgraph> {
+  return callClaude(apiKey, buildUserMessage(contract, selectedEvents, sanitizeName(contract.name)));
+}
+
+/**
+ * Feed a compile/test failure back to Claude and get corrected files. Used by the
+ * "Fix issues" loop, which re-verifies after each pass.
+ * @throws {@link AnthropicError}
+ */
+export async function fixSubgraph(
+  apiKey: string,
+  contract: ContractInfo,
+  files: GeneratedSubgraph,
+  errorLog: string,
+): Promise<GeneratedSubgraph> {
+  const name = sanitizeName(contract.name);
+  const msg = `The subgraph below FAILED verification (graph codegen / build / test). Fix the reported errors and return ALL files corrected. Change only what's needed; keep the parts that work.
+
+VERIFICATION OUTPUT (the errors to fix):
+${errorLog || "(no log)"}
+
+CURRENT FILES:
+
+=== schema.graphql ===
+${files.schema}
+
+=== subgraph.yaml ===
+${files.manifest}
+
+=== src/mapping.ts ===
+${files.mappings}
+
+=== tests/${name.toLowerCase()}.test.ts ===
+${files.tests}
+
+=== tests/utils.ts ===
+${files.testUtils}
+
+CONTRACT: ${contract.name} (${contract.kind}) on ${contract.graphNetwork}, indexed at ${contract.address}${contract.isProxy ? ` — proxy, implementation ${contract.implementation}` : ""}.
+ABI (for reference):
+${JSON.stringify(contract.abi)}
+
+Return every file (schema, manifest, mappings, tests, testUtils, notes).`;
+  return callClaude(apiKey, msg);
 }
 
 /** A safe PascalCase data-source/contract name for the manifest and imports. */

@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CHAINS, DEFAULT_CHAIN_ID } from "@/lib/chains";
-import { type AnthropicError, generateSubgraph, type GeneratedSubgraph } from "@/lib/generate";
+import {
+  type AnthropicError,
+  fixSubgraph,
+  generateSubgraph,
+  type GeneratedSubgraph,
+} from "@/lib/generate";
 import { sanitizeName } from "@/lib/generate";
 import { connectGitHub, type CreatedRepo, createSubgraphRepo } from "@/lib/github";
 import { highlight } from "@/lib/highlight";
@@ -221,6 +226,7 @@ export function Generator() {
           generating={generating}
           genError={genError}
           generated={generated}
+          onFilesUpdate={setGenerated}
         />
       )}
     </div>
@@ -237,6 +243,7 @@ function ContractPanel({
   generating,
   genError,
   generated,
+  onFilesUpdate,
 }: {
   contract: ContractInfo;
   selected: Set<string>;
@@ -247,6 +254,7 @@ function ContractPanel({
   generating: boolean;
   genError: string | null;
   generated: GeneratedSubgraph | null;
+  onFilesUpdate: (f: GeneratedSubgraph) => void;
 }) {
   const explorer = useMemo(() => explorerLink(contract), [contract]);
   const canGenerate = apiKey.trim().length > 0 && selected.size > 0 && !generating;
@@ -395,7 +403,14 @@ function ContractPanel({
         </div>
       )}
 
-      {generated && <FilesPanel files={generated} contract={contract} />}
+      {generated && (
+        <FilesPanel
+          files={generated}
+          contract={contract}
+          apiKey={apiKey}
+          onFilesUpdate={onFilesUpdate}
+        />
+      )}
     </div>
   );
 }
@@ -410,13 +425,20 @@ const FILE_TABS = [
 function FilesPanel({
   files,
   contract,
+  apiKey,
+  onFilesUpdate,
 }: {
   files: GeneratedSubgraph;
   contract: ContractInfo;
+  apiKey: string;
+  onFilesUpdate: (f: GeneratedSubgraph) => void;
 }) {
   const [tab, setTab] = useState<(typeof FILE_TABS)[number]["key"]>("schema");
   const [verifying, setVerifying] = useState(false);
   const [verdict, setVerdict] = useState<VerifyResult | null>(null);
+  const [autoFixing, setAutoFixing] = useState(false);
+  const [fixStatus, setFixStatus] = useState<string | null>(null);
+  const [fixError, setFixError] = useState<string | null>(null);
   const [ghBusy, setGhBusy] = useState(false);
   const [ghError, setGhError] = useState<string | null>(null);
   const [ghRepo, setGhRepo] = useState<CreatedRepo | null>(null);
@@ -425,6 +447,48 @@ function FilesPanel({
   );
   const body = files[tab];
   const lang = FILE_TABS.find((t) => t.key === tab)!.lang;
+  const MAX_FIX = 4;
+
+  // Feed the compiler/test errors back to Claude and iterate until it verifies
+  // (or we hit the attempt cap). Drives verify itself, so the auto-verify effect
+  // below is suppressed while this runs.
+  async function runFix() {
+    if (autoFixing) return;
+    if (!apiKey.trim()) {
+      setFixError("Add your Anthropic key above to auto-fix.");
+      return;
+    }
+    setFixError(null);
+    setAutoFixing(true);
+    let cur = files;
+    let log = verdict?.log ?? verdict?.error ?? "";
+    try {
+      for (let i = 1; i <= MAX_FIX; i++) {
+        setFixStatus(`Fixing with Claude — attempt ${i} of ${MAX_FIX}…`);
+        const next = await fixSubgraph(apiKey, contract, cur, log);
+        onFilesUpdate(next);
+        cur = next;
+        setFixStatus(`Re-checking attempt ${i}…`);
+        setVerifying(true);
+        const res = await verifyProject(next, contract);
+        setVerdict(res);
+        setVerifying(false);
+        if (res.ok) {
+          setFixStatus(null);
+          return;
+        }
+        log = res.log ?? res.error ?? "";
+        if (i === MAX_FIX) {
+          setFixStatus(`Still failing after ${MAX_FIX} attempts — you can try again or tweak the files.`);
+        }
+      }
+    } catch (e) {
+      setFixError((e as { message?: string }).message ?? String(e));
+      setVerifying(false);
+    } finally {
+      setAutoFixing(false);
+    }
+  }
 
   async function createRepo() {
     if (!GITHUB_CLIENT_ID || ghBusy || !repoName.trim()) return;
@@ -450,6 +514,8 @@ function FilesPanel({
   // with a loading flag is the intended use of an effect here.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
+    // The fix loop drives its own verify; don't double-run when it swaps files.
+    if (autoFixing) return;
     let live = true;
     setVerdict(null);
     setVerifying(true);
@@ -460,12 +526,35 @@ function FilesPanel({
     return () => {
       live = false;
     };
+    // autoFixing is read from the closure (files-change re-runs the effect during
+    // the loop); adding it as a dep would fire a wasteful extra verify on loop end.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, contract]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <div className="card overflow-hidden">
       <VerifyBanner verifying={verifying} verdict={verdict} />
+      {verdict && !verdict.ok && verdict.stage !== "config" && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-line bg-red/5 px-4 py-2.5">
+          <button onClick={runFix} disabled={autoFixing || verifying} className="btn disabled:opacity-50">
+            {autoFixing ? (
+              <span className="flex items-center gap-2">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Fixing…
+              </span>
+            ) : (
+              "⚡ Fix issues"
+            )}
+          </button>
+          <span className="text-xs text-muted">
+            {fixStatus ?? "Send the errors back to Claude and auto-fix until it verifies."}
+          </span>
+        </div>
+      )}
+      {fixError && (
+        <p className="border-b border-line px-4 py-2 text-xs text-red-bright">Auto-fix: {fixError}</p>
+      )}
       {files.notes && (
         <p className="border-b border-line px-4 py-3 text-sm text-muted">
           <span className="mr-1.5 text-ember">⚡</span>
