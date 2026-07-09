@@ -11,7 +11,9 @@ export function connectGitHub(clientId: string): Promise<string> {
     const redirect = `${location.origin}/api/github/callback`;
     const url =
       `https://github.com/login/oauth/authorize?client_id=${clientId}` +
-      `&scope=public_repo&redirect_uri=${encodeURIComponent(redirect)}&state=${state}`;
+      // `workflow` lets us commit the generated .github/workflows CI file. If the
+      // user declines it we still push everything else (see createSubgraphRepo).
+      `&scope=${encodeURIComponent("public_repo workflow")}&redirect_uri=${encodeURIComponent(redirect)}&state=${state}`;
 
     const popup = window.open(url, "redstart-github", "width=720,height=820");
     if (!popup) {
@@ -98,6 +100,12 @@ function hasRepoScope(scopes: string | null): boolean {
   return set.includes("repo") || set.includes("public_repo");
 }
 
+/** Whether the token may commit workflow files (`.github/workflows/*`). */
+function hasWorkflowScope(scopes: string | null): boolean {
+  if (!scopes) return false;
+  return scopes.split(",").map((s) => s.trim()).includes("workflow");
+}
+
 /**
  * Like `gh`, but retries on a 404. The git-data endpoints (blobs/trees/commits/
  * refs) can 404 for a beat right after `auto_init` while the git backend settles;
@@ -125,6 +133,8 @@ async function ghRetry(
 export interface CreatedRepo {
   url: string;
   fullName: string;
+  /** True if the CI workflow file was omitted because `workflow` scope was declined. */
+  workflowSkipped: boolean;
 }
 
 /** Create a public repo and push the whole project as a single initial commit. */
@@ -150,11 +160,15 @@ export async function createSubgraphRepo(
       `auth check: GitHub ${meRes.status} — the connection didn't stick. Disconnect and reconnect GitHub.`,
     );
   }
-  if (!hasRepoScope(meRes.headers.get("x-oauth-scopes"))) {
+  const scopes = meRes.headers.get("x-oauth-scopes");
+  if (!hasRepoScope(scopes)) {
     throw new Error(
-      `Your GitHub token can't create repositories (scopes: ${meRes.headers.get("x-oauth-scopes") || "none"}). Revoke Redstart at github.com/settings/applications, then reconnect and approve the repository permission.`,
+      `Your GitHub token can't create repositories (scopes: ${scopes || "none"}). Revoke Redstart at github.com/settings/applications, then reconnect and approve the repository permission.`,
     );
   }
+  // Whether we may push the CI workflow file. If the user didn't grant `workflow`,
+  // we skip it (below) rather than failing the whole push.
+  const canWorkflow = hasWorkflowScope(scopes);
 
   // 1. Create the repo with an initial commit. `auto_init: true` is required —
   // the Git Data API can't create blobs/trees on a bare repo ("Git Repository is
@@ -188,11 +202,16 @@ export async function createSubgraphRepo(
     "read base commit",
   );
 
-  // 3. Blob per file. Skip `.github/workflows/*` — pushing workflow files needs the
-  // `workflow` OAuth scope, which we don't request; the CI file ships in the .zip.
+  // 3. Blob per file. Skip `.github/workflows/*` only if the user didn't grant the
+  // `workflow` scope — pushing those files requires it; the CI file always ships
+  // in the .zip regardless.
+  let workflowSkipped = false;
   const tree = [];
   for (const [path, content] of Object.entries(files)) {
-    if (path.startsWith(".github/workflows/")) continue;
+    if (path.startsWith(".github/workflows/") && !canWorkflow) {
+      workflowSkipped = true;
+      continue;
+    }
     const blob = await ghRetry(
       token,
       `/repos/${owner}/${name}/git/blobs`,
@@ -226,5 +245,5 @@ export async function createSubgraphRepo(
     "update branch",
   );
 
-  return { url: repo.html_url, fullName: repo.full_name };
+  return { url: repo.html_url, fullName: repo.full_name, workflowSkipped };
 }

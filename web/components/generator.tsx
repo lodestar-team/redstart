@@ -607,6 +607,12 @@ function FilesPanel({
               >
                 {ghRepo.fullName} ↗
               </a>
+              {ghRepo.workflowSkipped && (
+                <span className="ml-2 text-xs text-muted">
+                  (CI workflow skipped — it&apos;s in the .zip; reconnect and approve
+                  &ldquo;workflow&rdquo; to include it)
+                </span>
+              )}
             </span>
             <button
               onClick={() => downloadProject(files, contract)}
