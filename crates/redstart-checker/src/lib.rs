@@ -1253,7 +1253,7 @@ pub fn plan_id_rewrites(tree: &ModuleTree) -> IdRewritePlan {
         };
         let mut site_edits = convertible.remove(&entity).unwrap_or_default();
         // Deepest-first so earlier edits never shift later offsets.
-        site_edits.sort_by(|a, b| b.start.cmp(&a.start));
+        site_edits.sort_by_key(|e| std::cmp::Reverse(e.start));
         let sites = site_edits.len();
         let mut edits = vec![Edit {
             file: dfile,

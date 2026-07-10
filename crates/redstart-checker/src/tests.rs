@@ -473,7 +473,7 @@ fn rewrite_of(src: &str) -> (crate::IdRewritePlan, String) {
         .flat_map(|r| &r.edits)
         .map(|e| (e.start, e.end, e.replacement.clone()))
         .collect();
-    edits.sort_by(|a, b| b.0.cmp(&a.0));
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0));
     let mut out = fs::read_to_string(&main).unwrap();
     for (start, end, repl) in edits {
         out.replace_range(start..end, &repl);
