@@ -120,6 +120,11 @@ enum Command {
     },
     /// Start the language server over stdio (for editor integration).
     Lsp,
+    /// Start the MCP server over stdio (author-side tools for AI agents).
+    ///
+    /// Exposes `check`, `explain`, `build`, and `test` as Model Context Protocol
+    /// tools, so an agent can drive the toolchain in a write → check → fix loop.
+    Mcp,
 }
 
 fn main() -> ExitCode {
@@ -150,6 +155,10 @@ fn main() -> ExitCode {
         Command::Explain { code, json } => cmd_explain(code.as_deref(), json),
         Command::Lsp => {
             redstart_lsp::run();
+            Ok(())
+        }
+        Command::Mcp => {
+            redstart_mcp::run();
             Ok(())
         }
     };

@@ -19,6 +19,7 @@
 
 - [The eject path](./eject-path.md)
 - [What's checked for you](./safety.md)
+- [MCP server (for AI agents)](./mcp.md)
 
 ---
 

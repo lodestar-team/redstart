@@ -320,11 +320,14 @@ turn — Matchstick can't touch that loop time.
 ### 5.3 🔜 MCP — two complementary layers
 There are **two** MCP layers in a Redstart agent story; they don't compete.
 
-- **Author-side (`redstart mcp`) — we build this; it doesn't exist.** Expose
-  `check` / `build` / `test` / `explain` / `new-from-address` as MCP tools so any
-  agent (Claude Code, Cursor, …) *writes and verifies* a Redstart subgraph in-loop.
-  This is the natural payoff of the `--json` + `explain` groundwork and the
-  distribution play for the agent era. **Highest-priority MCP work.**
+- **Author-side (`redstart mcp`) — ✅ shipped (v0.15.0).** Exposes `check` /
+  `explain` / `build` / `test` as MCP tools over stdio (hand-rolled JSON-RPC 2.0,
+  new `redstart-mcp` crate) so any agent (Claude Code, Cursor, …) *writes and
+  verifies* a Redstart subgraph in-loop. `check` is the keystone: it returns the
+  same structured diagnostics as `check --json` (errors + lint warnings, precisely
+  located), and load/parse failures come back as `{ ok: false, diagnostics }` so
+  the loop never stalls. `new-from-address` is deferred (network-gated, §5.4).
+  The natural payoff of the `--json` + `explain` groundwork.
 - **Consumer-side — adopt, don't rebuild.** [`graphops/subgraph-mcp`](https://github.com/graphops/subgraph-mcp)
   (Rust; *query* deployed subgraphs — search, schema, execute GraphQL) and
   `subgraph-registry-mcp` (npm; *discover* subgraphs) already exist and are
@@ -403,7 +406,7 @@ a release, each with a `run.sh all` "0 diffs but N% faster" proof.*
 4. **Load coalescing / loop-invariant hoist (§4.6)**.
 
 ### Then — Lever 3 author-side MCP + remaining Lever-1 bugs
-5. **`redstart mcp` author-side server (§5.3)** — the agent-distribution keystone.
+5. ✅ **`redstart mcp` author-side server (§5.3, v0.15.0)** — the agent-distribution keystone.
 6. Collision-resistant typed IDs (§3.8); tuple/struct event-signature expansion (§3.9);
    BigDecimal-ceiling warning (§3.6); LSP code actions (§5.6).
 

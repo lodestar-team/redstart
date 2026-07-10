@@ -6,6 +6,28 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-10
+
+Author-side MCP server — roadmap §5.3 (the agent keystone).
+
+### Added
+- **`redstart mcp` — a Model Context Protocol server.** Exposes the toolchain the
+  compiler already owns as MCP tools an AI agent can drive in a write → check → fix
+  loop, over stdio (newline-delimited JSON-RPC 2.0, no external SDK):
+  - **`check`** — type-check a project (`path`) or inline `source` and return the
+    same structured diagnostics as `redstart check --json` (errors *and* lint
+    warnings, each with a code, message, and file/line). A parse/load failure is
+    returned as a normal `{ ok: false, diagnostics }` result, not a tool error, so
+    the agent always gets machine-readable feedback. This is the keystone tool.
+  - **`explain`** — explain a diagnostic code (what triggers it, the footgun it
+    prevents, the fix); omit `code` to list every code.
+  - **`build`** — emit `schema.graphql`, `subgraph.yaml`, and `src/mappings.ts`,
+    returning the artifacts (and optimisation notes); `write: true` also writes them.
+  - **`test`** — run the project's `test` blocks natively and return per-test results.
+
+  New `redstart-mcp` crate; the CLI gains the `redstart mcp` subcommand alongside
+  `redstart lsp`.
+
 ## [0.14.0] - 2026-07-10
 
 Optimising compiler — roadmap §4.3 (`fix --ids` completeness).

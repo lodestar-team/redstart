@@ -1,24 +1,16 @@
 [package]
-name = "redstart-cli"
+name = "redstart-mcp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The Redstart command-line toolchain"
-
-[[bin]]
-name = "redstart"
-path = "src/main.rs"
+description = "Model Context Protocol server for Redstart (check/explain/build/test as agent tools)"
 
 [dependencies]
-redstart-parser.workspace = true
 redstart-loader.workspace = true
 redstart-checker.workspace = true
 redstart-codegen.workspace = true
 redstart-test.workspace = true
-redstart-lsp.workspace = true
-redstart-mcp.workspace = true
-clap.workspace = true
 serde_json.workspace = true
 
 [lints]

@@ -49,7 +49,7 @@ jobs:
           FORCE_DRY: ${{ steps.cfg.outputs.enabled == 'false' || inputs.dry_run == true }}
         run: |
           set -euo pipefail
-          CRATES="redstart-parser redstart-loader redstart-checker redstart-codegen redstart-test redstart-lsp redstart-cli"
+          CRATES="redstart-parser redstart-loader redstart-checker redstart-codegen redstart-test redstart-lsp redstart-mcp redstart-cli"
           if [ "$FORCE_DRY" = "true" ]; then
             # Without a token we can't publish. A full dry-run can't work either:
             # cargo resolves each crate's deps against crates.io, and the
