@@ -6,6 +6,29 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-10
+
+Optimising compiler — roadmap §4.3 (Bytes-ids, the rewrite half).
+
+### Added
+- **`redstart fix --ids` — the W040 autofix.** Turns the `String`→`Bytes` id
+  lint into an opt-in, in-place rewrite: it flips the entity's schema declaration
+  to `Id<Bytes>` *and* drops the `.toHexString()` at every construction site, in
+  one coordinated pass across all modules. A `Bytes` id indexes ~28% faster and
+  stores ~48% less than the equivalent hex-string id (Edge & Node benchmark).
+
+  Conservative by construction — an entity is converted only when **every** one of
+  its id sites (in handlers, functions *and* `test` blocks) is provably a single
+  stringified `Bytes`/`Address` value. A single literal-string id, composite key,
+  or id built via an intermediate local and the whole entity is left untouched and
+  reported (`⤫ Entity  skipped: …`), so the command never emits code that fails to
+  check. It re-verifies the result and refuses to leave a broken tree.
+
+  `--dry-run` previews the plan without writing. Because a `Bytes` id changes the
+  stored id representation (hex-string → raw bytes), this is a deliberate data
+  change — hence opt-in — so redeploy affected subgraphs from the relevant block.
+  `redstart explain W040` now points at the fixer.
+
 ## [0.11.0] - 2026-07-07
 
 Optimising compiler — roadmap §4.3 (Bytes-ids, the id half).

@@ -230,7 +230,7 @@ metadata calls (`name`/`symbol`/`decimals`) not behind a `load()==null` cache.
 [reduce eth_calls](https://thegraph.com/blog/improve-subgraph-performance-reduce-eth-calls/) ·
 [declared calls (Goldsky)](https://docs.goldsky.com/subgraphs/guides/declared-eth-calls)
 
-### 4.3 ✅→🔜 [AUTO/WARN] Infer `immutable: true` (v0.9.0) · Bytes-ids (W040, v0.11.0)
+### 4.3 ✅ [AUTO/WARN] Infer `immutable: true` (v0.9.0) · Bytes-ids (W040 v0.11.0 → `fix --ids` v0.12.0)
 Measured (Edge & Node benchmark): immutable + Bytes ids → **28% faster indexing,
 48% less disk** vs mutable + String ids. **✅ [WARN] (v0.11.0):** W040 flags an id
 built by stringifying a single `Bytes`/`Address` (`.toHexString()`/`.toHex()`,
@@ -238,8 +238,12 @@ directly or via a local) and recommends `id: Id<Bytes>`. Deliberately a *warning
 not an auto-rewrite: a String→Bytes id changes the stored id value (hex-string → raw
 bytes), so — unlike immutability, which is store-identical — it is a data change the
 author opts into (re-deploy from the affected block). Composite keys and literal-string
-ids are never flagged. **🔜 [AUTO] next:** an opt-in `--rewrite-ids` that performs the
-conversion + drops the `.toHexString()`. When a type is only ever `new`-constructed +
+ids are never flagged. **✅ [AUTO] (v0.12.0):** `redstart fix --ids` performs the
+conversion — flips the declaration to `Id<Bytes>` and drops the `.toHexString()` at every
+site in one pass — but only when *every* id site of the entity is a single stringified
+value (one literal/composite/via-local site and the whole entity is reported and left
+untouched, so it never emits code that fails to check). `--dry-run` previews. When a type
+is only ever `new`-constructed +
 `.save()`d (never load-then-mutate anywhere), emit `@entity(immutable: true)`.
 (Redstart already does this for timeseries — generalise it.) Caveat: figures are "up to"
 and workload-dependent ([#3534](https://github.com/graphprotocol/graph-node/issues/3534)
@@ -387,7 +391,7 @@ a release, each with a `run.sh all` "0 diffs but N% faster" proof.*
    `@entity(immutable: true)` (created-but-never-loaded/mutated); consistent with the
    gate-proven erc20 annotations. ✅ **Bytes-id half (§4.3, v0.11.0)** — W040 flags a
    single address/bytes stringified into the id, steering to `Id<Bytes>` (~28%/48%).
-   **Next:** opt-in `--rewrite-ids` auto-conversion.
+   ✅ **`fix --ids` auto-conversion (§4.3, v0.12.0)** — opt-in, gated on all-sites-convertible.
 2. **Stored-array → `@derivedFrom` rewrite (§4.4)** — O(n²) → O(n) disk.
 3. ✅ **`prune: auto` default (§4.5, v0.10.0)** — smaller DB, faster queries, for free.
 4. **Load coalescing / loop-invariant hoist (§4.6)**.

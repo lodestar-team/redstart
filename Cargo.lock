@@ -837,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "redstart-checker"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "miette",
  "redstart-loader",
@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "redstart-cli"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "clap",
  "redstart-checker",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "redstart-codegen"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "insta",
  "redstart-checker",
@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "redstart-loader"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "miette",
  "redstart-parser",
@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "redstart-lsp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "redstart-checker",
  "redstart-loader",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "redstart-parser"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "logos",
  "miette",
@@ -907,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "redstart-test"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "bigdecimal",
  "num-bigint",
@@ -920,7 +920,7 @@ dependencies = [
 
 [[package]]
 name = "redstart-wasm"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "redstart-checker",
  "redstart-codegen",

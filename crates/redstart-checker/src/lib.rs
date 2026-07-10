@@ -69,7 +69,7 @@ pub fn check_with_abis(
     tree: &ModuleTree,
     abi_texts: &HashMap<String, String>,
 ) -> Result<Checked, Vec<String>> {
-    let (checked, diags) = analyze(tree, abi_texts);
+    let (checked, diags, _) = analyze(tree, abi_texts);
     // Warnings (lints) are reported elsewhere but never block the build.
     let errors: Vec<String> = diags
         .iter()
@@ -90,8 +90,14 @@ pub fn check_diags(tree: &ModuleTree) -> Vec<Diag> {
     analyze(tree, &HashMap::new()).1
 }
 
-fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, Vec<Diag>) {
+fn analyze(
+    tree: &ModuleTree,
+    abi_texts: &HashMap<String, String>,
+) -> (Checked, Vec<Diag>, Vec<IdSite>) {
     let mut diags: Vec<Diag> = Vec::new();
+    // Convertible/blocking id-construction sites, gathered as a side-channel for
+    // `plan_id_rewrites`; ignored on the normal check paths.
+    let mut sites: Vec<IdSite> = Vec::new();
 
     // ---- gather modules with their filenames ----
     let modules = tree.ordered();
@@ -171,6 +177,14 @@ fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, 
             }
         }
     }
+
+    // Entities whose id is a `String` (`Id<String>` or bare `String`) — the only
+    // ones `--rewrite-ids` (`plan_id_rewrites`) can steer toward a `Bytes` id.
+    let id_string_entities: HashSet<String> = entities
+        .iter()
+        .filter(|(_, info)| matches!(info.fields.get("id"), Some(RTy::String)))
+        .map(|(name, _)| name.clone())
+        .collect();
 
     // ---- per-declaration validation ----
     let entity_names: Vec<String> = entities.keys().cloned().collect();
@@ -252,6 +266,8 @@ fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, 
                 &mut abis,
                 file,
                 &mut diags,
+                &id_string_entities,
+                &mut sites,
             );
         }
         for func in &m.program.functions {
@@ -263,6 +279,8 @@ fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, 
                 &abis,
                 file,
                 &mut diags,
+                &id_string_entities,
+                &mut sites,
             );
         }
     }
@@ -276,6 +294,7 @@ fn analyze(tree: &ModuleTree, abi_texts: &HashMap<String, String>) -> (Checked, 
             immutable_inferred,
         },
         diags,
+        sites,
     )
 }
 
@@ -514,6 +533,8 @@ fn check_handler(
     abis: &mut AbiIndex,
     file: &str,
     diags: &mut Vec<Diag>,
+    id_string_entities: &HashSet<String>,
+    sites: &mut Vec<IdSite>,
 ) {
     // The source must exist.
     if !data_sources.contains_key(&h.source.name) {
@@ -634,6 +655,15 @@ fn check_handler(
         file,
         diags,
     );
+    collect_id_sites(
+        &h.body.stmts,
+        &ctx,
+        &mut HashMap::new(),
+        &mut HashSet::new(),
+        id_string_entities,
+        file,
+        sites,
+    );
 }
 
 /// Check a free `fn` body — same footgun analysis as a handler, with the
@@ -647,6 +677,8 @@ fn check_fn(
     abis: &AbiIndex,
     file: &str,
     diags: &mut Vec<Diag>,
+    id_string_entities: &HashSet<String>,
+    sites: &mut Vec<IdSite>,
 ) {
     let ctx = BodyCtx {
         entities,
@@ -671,6 +703,15 @@ fn check_fn(
         &mut HashSet::new(),
         file,
         diags,
+    );
+    collect_id_sites(
+        &func.body.stmts,
+        &ctx,
+        &mut locals.clone(),
+        &mut HashSet::new(),
+        id_string_entities,
+        file,
+        sites,
     );
 }
 
@@ -1055,6 +1096,521 @@ fn warn_stringified_ctor_id(
                 "declare the entity `id: Id<Bytes>` and pass the raw `Bytes`/`Address`, dropping the `.toHexString()` (Edge & Node benchmark)",
             ),
         );
+    }
+}
+
+// ---- id rewrite (`redstart fix --ids`, roadmap §4.3) ----------------------
+//
+// `plan_id_rewrites` turns the W040 lint into an opt-in auto-rewrite: it steers a
+// `String`-keyed entity to a `Bytes` id (`Id<Bytes>`, ~28% faster / ~48% smaller
+// on the Edge & Node benchmark) by flipping the schema declaration *and* dropping
+// the `.toHexString()` at every construction site. Because that changes the stored
+// id representation (hex-string → raw bytes) it is a deliberate data change, hence
+// opt-in. It is applied only when *every* id site of the entity is provably a single
+// stringified `Bytes`/`Address` — one literal-string or composite site and the whole
+// entity is left untouched (and reported), so we never emit code that fails to check.
+
+/// A single byte-range replacement in one `.red` file.
+pub struct Edit {
+    /// The file the offsets index into (display path).
+    pub file: String,
+    /// Byte offset of the start of the range to replace.
+    pub start: usize,
+    /// Byte offset of the end of the range (exclusive).
+    pub end: usize,
+    /// The replacement text (empty for a deletion).
+    pub replacement: String,
+}
+
+/// An entity whose `String` id can be rewritten to `Id<Bytes>`, with every edit
+/// (the schema declaration plus each construction site) needed to do it.
+pub struct EntityIdRewrite {
+    /// The entity name.
+    pub entity: String,
+    /// How many construction sites are rewritten.
+    pub sites: usize,
+    /// The declaration edit followed by one edit per site.
+    pub edits: Vec<Edit>,
+}
+
+/// An entity with a convertible id site that also has a site we can't safely
+/// convert, so it is left entirely untouched.
+pub struct SkippedIdRewrite {
+    /// The entity name.
+    pub entity: String,
+    /// Why the entity was skipped (the blocking site).
+    pub reason: String,
+    /// The file of the blocking site.
+    pub file: String,
+    /// The 1-based line of the blocking site.
+    pub line: usize,
+}
+
+/// The result of [`plan_id_rewrites`].
+pub struct IdRewritePlan {
+    /// Entities that will be converted, each with its edits.
+    pub rewrites: Vec<EntityIdRewrite>,
+    /// Entities with a convertible site but a blocking site elsewhere.
+    pub skipped: Vec<SkippedIdRewrite>,
+}
+
+/// One id-construction site found in a handler/fn/test body.
+struct IdSite {
+    entity: String,
+    file: String,
+    kind: SiteKind,
+}
+
+enum SiteKind {
+    /// A `base.toHexString()` id — convert by deleting `[start, end)`.
+    Convertible { start: usize, end: usize },
+    /// An id we can't safely convert; blocks the whole entity. `w040` marks the
+    /// stringified-via-a-local case — it still fires W040 (so the entity is a
+    /// conversion *candidate*) but v1 won't rewrite through the intermediate local.
+    Blocker {
+        reason: String,
+        line: usize,
+        w040: bool,
+    },
+}
+
+/// Plan the `String` → `Bytes` id rewrite across a whole project. Pure analysis:
+/// it produces edits but touches nothing on disk (the CLI applies them).
+#[must_use]
+pub fn plan_id_rewrites(tree: &ModuleTree) -> IdRewritePlan {
+    // Handler/fn sites, gathered by the checker with full type inference.
+    let (_checked, _diags, mut sites) = analyze(tree, &HashMap::new());
+    let modules = tree.ordered();
+
+    // `String`-id entities, each mapped to the declaration edit (its id type span).
+    let mut decl: HashMap<String, (String, usize, usize)> = HashMap::new();
+    let mut id_entities: HashSet<String> = HashSet::new();
+    for m in &modules {
+        let file = m.file_path.display().to_string();
+        for e in &m.program.entities {
+            if let Some(idf) = e.fields.iter().find(|f| f.name.name == "id") {
+                if is_string_id_type(&idf.ty) {
+                    let sp = idf.ty.span();
+                    decl.insert(e.name.name.clone(), (file.clone(), sp.start, sp.end));
+                    id_entities.insert(e.name.name.clone());
+                }
+            }
+        }
+    }
+
+    // Test bodies aren't type-checked through a `BodyCtx`, so scan them by shape.
+    for m in &modules {
+        let file = m.file_path.display().to_string();
+        for t in &m.program.tests {
+            collect_test_id_sites(&t.body.stmts, &id_entities, &file, &mut sites);
+        }
+    }
+
+    // Fold sites into per-entity convertible edits, (first) blockers, and the set
+    // of conversion candidates — entities for which W040 fired at least once.
+    let mut convertible: HashMap<String, Vec<Edit>> = HashMap::new();
+    let mut blockers: HashMap<String, SkippedIdRewrite> = HashMap::new();
+    let mut candidates: HashSet<String> = HashSet::new();
+    for site in sites {
+        match site.kind {
+            SiteKind::Convertible { start, end } => {
+                candidates.insert(site.entity.clone());
+                convertible.entry(site.entity).or_default().push(Edit {
+                    file: site.file,
+                    start,
+                    end,
+                    replacement: String::new(),
+                });
+            }
+            SiteKind::Blocker { reason, line, w040 } => {
+                if w040 {
+                    candidates.insert(site.entity.clone());
+                }
+                blockers
+                    .entry(site.entity.clone())
+                    .or_insert(SkippedIdRewrite {
+                        entity: site.entity,
+                        reason,
+                        file: site.file,
+                        line,
+                    });
+            }
+        }
+    }
+
+    // A candidate is only converted if it has no blocking site at all.
+    let mut candidates: Vec<String> = candidates.into_iter().collect();
+    candidates.sort();
+    let mut rewrites = Vec::new();
+    let mut skipped = Vec::new();
+    for entity in candidates {
+        if let Some(skip) = blockers.remove(&entity) {
+            skipped.push(skip);
+            continue;
+        }
+        let Some((dfile, dstart, dend)) = decl.get(&entity).cloned() else {
+            continue;
+        };
+        let mut site_edits = convertible.remove(&entity).unwrap_or_default();
+        // Deepest-first so earlier edits never shift later offsets.
+        site_edits.sort_by(|a, b| b.start.cmp(&a.start));
+        let sites = site_edits.len();
+        let mut edits = vec![Edit {
+            file: dfile,
+            start: dstart,
+            end: dend,
+            replacement: "Id<Bytes>".to_string(),
+        }];
+        edits.extend(site_edits);
+        rewrites.push(EntityIdRewrite {
+            entity,
+            sites,
+            edits,
+        });
+    }
+    skipped.sort_by(|a, b| a.entity.cmp(&b.entity));
+    IdRewritePlan { rewrites, skipped }
+}
+
+/// Is this an `Id<String>` (or bare `String`) id type?
+fn is_string_id_type(ty: &TypeExpr) -> bool {
+    match ty {
+        TypeExpr::Path { .. } => ty.simple_name() == Some("String"),
+        TypeExpr::Generic { base, args, .. } => {
+            base.simple_name() == Some("Id")
+                && args.first().and_then(TypeExpr::simple_name) == Some("String")
+        }
+        TypeExpr::List { .. } => false,
+    }
+}
+
+/// An `Entity.<method>(id, …)` call keyed on an entity id → `(entity, id_arg)`.
+fn entity_id_call<'a>(expr: &'a Expr, methods: &[&str]) -> Option<(&'a str, &'a Expr)> {
+    let Expr::Call { callee, args, .. } = expr else {
+        return None;
+    };
+    let Expr::Field { base, field, .. } = callee.as_ref() else {
+        return None;
+    };
+    if !methods.contains(&field.name.as_str()) {
+        return None;
+    }
+    // `Entity` or a module-qualified `mod::Entity` — the entity name is the last
+    // path segment (entity names are globally unique, so the qualifier is noise).
+    let Expr::Path { segments, .. } = base.as_ref() else {
+        return None;
+    };
+    Some((segments.last()?.name.as_str(), args.first()?))
+}
+
+/// The byte range of the `.toHexString()` / `.toHex()` suffix of `base.toHex…()`,
+/// regardless of `base`'s type. Deleting it turns the call back into `base`.
+fn to_hex_drop_range(arg: &Expr) -> Option<(usize, usize)> {
+    let Expr::Call { callee, args, span } = arg else {
+        return None;
+    };
+    if !args.is_empty() {
+        return None;
+    }
+    let Expr::Field { base, field, .. } = callee.as_ref() else {
+        return None;
+    };
+    if !matches!(field.name.as_str(), "toHexString" | "toHex") {
+        return None;
+    }
+    Some((base.span().end, span.end))
+}
+
+/// Why an id argument can't be auto-converted to `Bytes`.
+fn id_blocker_reason(arg: &Expr) -> String {
+    match arg {
+        Expr::Str { .. } => "keyed on a literal string id".to_string(),
+        Expr::Binary { .. } => "keyed on a composite id (string concatenation)".to_string(),
+        Expr::Path { .. } => "id built via an intermediate local (convert it by hand)".to_string(),
+        _ => "id expression is not a single stringified Bytes/Address value".to_string(),
+    }
+}
+
+fn line_of(src: &str, off: usize) -> usize {
+    src.get(..off)
+        .map_or(1, |s| s.bytes().filter(|&b| b == b'\n').count() + 1)
+}
+
+/// Record a create/load id site (handler/fn body): convertible iff the id is a
+/// single stringified `Bytes`/`Address`, otherwise a blocker.
+fn record_id_site(
+    value: &Expr,
+    ctx: &BodyCtx,
+    locals: &HashMap<String, RTy>,
+    hex_locals: &HashSet<String>,
+    id_entities: &HashSet<String>,
+    file: &str,
+    out: &mut Vec<IdSite>,
+) {
+    let methods = ["create", "loadOrCreate", "load", "loadInBlock"];
+    let Some((entity, id_arg)) = entity_id_call(value, &methods) else {
+        return;
+    };
+    if !id_entities.contains(entity) {
+        return;
+    }
+    let kind = if stringified_single_bytes(id_arg, ctx, locals) {
+        let (start, end) = to_hex_drop_range(id_arg).expect("stringified id is a toHex call");
+        SiteKind::Convertible { start, end }
+    } else {
+        // A local holding `x.toHexString()` still fired W040 — the entity is a
+        // candidate, but v1 won't rewrite through the local, so it blocks.
+        let via_local = matches!(id_arg, Expr::Path { segments, .. }
+            if segments.len() == 1 && hex_locals.contains(&segments[0].name));
+        let sp = id_arg.span();
+        SiteKind::Blocker {
+            reason: id_blocker_reason(id_arg),
+            line: line_of(&sp.source, sp.start),
+            w040: via_local,
+        }
+    };
+    out.push(IdSite {
+        entity: entity.to_string(),
+        file: file.to_string(),
+        kind,
+    });
+}
+
+/// Collect id-construction sites in a handler/fn body (mirrors the W040 walk so
+/// local types stay in scope for the `Bytes`/`Address` inference).
+fn collect_id_sites(
+    stmts: &[Stmt],
+    ctx: &BodyCtx,
+    locals: &mut HashMap<String, RTy>,
+    hex_locals: &mut HashSet<String>,
+    id_entities: &HashSet<String>,
+    file: &str,
+    out: &mut Vec<IdSite>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { name, value, .. } => {
+                record_id_site(value, ctx, locals, hex_locals, id_entities, file, out);
+                if stringified_single_bytes(value, ctx, locals) {
+                    hex_locals.insert(name.name.clone());
+                } else {
+                    hex_locals.remove(&name.name);
+                }
+                locals.insert(name.name.clone(), infer(value, ctx, locals));
+            }
+            Stmt::Assign { value, .. } => {
+                record_id_site(value, ctx, locals, hex_locals, id_entities, file, out);
+            }
+            Stmt::Return { value: Some(v), .. } => {
+                record_id_site(v, ctx, locals, hex_locals, id_entities, file, out);
+            }
+            Stmt::Return { .. } => {}
+            Stmt::If {
+                then_block,
+                else_ifs,
+                else_block,
+                ..
+            } => {
+                collect_id_sites(
+                    &then_block.stmts,
+                    ctx,
+                    &mut locals.clone(),
+                    &mut hex_locals.clone(),
+                    id_entities,
+                    file,
+                    out,
+                );
+                for (_, b) in else_ifs {
+                    collect_id_sites(
+                        &b.stmts,
+                        ctx,
+                        &mut locals.clone(),
+                        &mut hex_locals.clone(),
+                        id_entities,
+                        file,
+                        out,
+                    );
+                }
+                if let Some(b) = else_block {
+                    collect_id_sites(
+                        &b.stmts,
+                        ctx,
+                        &mut locals.clone(),
+                        &mut hex_locals.clone(),
+                        id_entities,
+                        file,
+                        out,
+                    );
+                }
+            }
+            Stmt::While { body, .. } => {
+                collect_id_sites(
+                    &body.stmts,
+                    ctx,
+                    &mut locals.clone(),
+                    &mut hex_locals.clone(),
+                    id_entities,
+                    file,
+                    out,
+                );
+            }
+            Stmt::For { var, body, .. } => {
+                let mut l = locals.clone();
+                l.insert(var.name.clone(), RTy::Unknown);
+                collect_id_sites(
+                    &body.stmts,
+                    ctx,
+                    &mut l,
+                    &mut hex_locals.clone(),
+                    id_entities,
+                    file,
+                    out,
+                );
+            }
+            Stmt::Expr(e) => {
+                if let Expr::Match { arms, .. } = e {
+                    for arm in arms {
+                        collect_id_sites(
+                            &arm.body.stmts,
+                            ctx,
+                            &mut locals.clone(),
+                            &mut hex_locals.clone(),
+                            id_entities,
+                            file,
+                            out,
+                        );
+                    }
+                } else {
+                    record_id_site(e, ctx, locals, hex_locals, id_entities, file, out);
+                }
+            }
+        }
+    }
+}
+
+/// Visit every `Call` subexpression of `e` (used by the shape-only test scan).
+fn visit_calls<F: FnMut(&Expr)>(e: &Expr, f: &mut F) {
+    if let Expr::Call { .. } = e {
+        f(e);
+    }
+    match e {
+        Expr::Field { base, .. } => visit_calls(base, f),
+        Expr::Call { callee, args, .. } => {
+            visit_calls(callee, f);
+            for a in args {
+                visit_calls(a, f);
+            }
+        }
+        Expr::Record { fields, .. } => {
+            for (_, v) in fields {
+                visit_calls(v, f);
+            }
+        }
+        Expr::Array { elems, .. } => {
+            for x in elems {
+                visit_calls(x, f);
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            visit_calls(base, f);
+            visit_calls(index, f);
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            visit_calls(lhs, f);
+            visit_calls(rhs, f);
+        }
+        Expr::Unary { expr, .. } => visit_calls(expr, f),
+        Expr::Match { scrutinee, .. } => visit_calls(scrutinee, f),
+        _ => {}
+    }
+}
+
+/// Record id sites inside a `test` body by shape (no `BodyCtx`). A raw `0x…`
+/// literal is already valid as a `Bytes` id (neutral); a `.toHexString()` id is
+/// convertible; anything else blocks the entity.
+fn collect_test_id_sites(
+    stmts: &[Stmt],
+    id_entities: &HashSet<String>,
+    file: &str,
+    out: &mut Vec<IdSite>,
+) {
+    let methods = ["create", "loadOrCreate", "load", "loadInBlock", "at"];
+    let record = |e: &Expr, out: &mut Vec<IdSite>| {
+        visit_calls(e, &mut |call| {
+            let Some((entity, id_arg)) = entity_id_call(call, &methods) else {
+                return;
+            };
+            if !id_entities.contains(entity) {
+                return;
+            }
+            match id_arg {
+                // A raw address/bytes literal is already a valid `Bytes` id.
+                Expr::Hex { .. } => {}
+                _ if to_hex_drop_range(id_arg).is_some() => {
+                    let (start, end) = to_hex_drop_range(id_arg).unwrap();
+                    out.push(IdSite {
+                        entity: entity.to_string(),
+                        file: file.to_string(),
+                        kind: SiteKind::Convertible { start, end },
+                    });
+                }
+                _ => {
+                    // A test never makes an entity a candidate — it only blocks one
+                    // already flagged in a handler/fn body — so `w040` is false.
+                    let sp = id_arg.span();
+                    out.push(IdSite {
+                        entity: entity.to_string(),
+                        file: file.to_string(),
+                        kind: SiteKind::Blocker {
+                            reason: id_blocker_reason(id_arg),
+                            line: line_of(&sp.source, sp.start),
+                            w040: false,
+                        },
+                    });
+                }
+            }
+        });
+    };
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { value, .. } => record(value, out),
+            Stmt::Assign { target, value, .. } => {
+                record(target, out);
+                record(value, out);
+            }
+            Stmt::Return { value: Some(v), .. } => record(v, out),
+            Stmt::Return { .. } => {}
+            Stmt::If {
+                cond,
+                then_block,
+                else_ifs,
+                else_block,
+                ..
+            } => {
+                record(cond, out);
+                collect_test_id_sites(&then_block.stmts, id_entities, file, out);
+                for (c, b) in else_ifs {
+                    record(c, out);
+                    collect_test_id_sites(&b.stmts, id_entities, file, out);
+                }
+                if let Some(b) = else_block {
+                    collect_test_id_sites(&b.stmts, id_entities, file, out);
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                record(cond, out);
+                collect_test_id_sites(&body.stmts, id_entities, file, out);
+            }
+            Stmt::For { body, .. } => collect_test_id_sites(&body.stmts, id_entities, file, out),
+            Stmt::Expr(e) => {
+                record(e, out);
+                if let Expr::Match { arms, .. } = e {
+                    for arm in arms {
+                        collect_test_id_sites(&arm.body.stmts, id_entities, file, out);
+                    }
+                }
+            }
+        }
     }
 }
 

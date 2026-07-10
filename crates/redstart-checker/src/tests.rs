@@ -449,6 +449,114 @@ fn check_project(src: &str) -> crate::Checked {
     crate::check(&tree).expect("should check")
 }
 
+// ---- id rewrite (`redstart fix --ids`) ------------------------------------
+
+/// Build a one-file project, plan the id rewrite, and apply its edits to the
+/// source in-memory. Returns `(plan, rewritten_main.red)`.
+fn rewrite_of(src: &str) -> (crate::IdRewritePlan, String) {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("src/abis")).unwrap();
+    fs::write(
+        dir.path().join("redstart.toml"),
+        "[project]\nname = \"t\"\nentry = \"src/main.red\"",
+    )
+    .unwrap();
+    fs::write(dir.path().join("src/abis/ERC20.json"), ABI).unwrap();
+    let main = dir.path().join("src/main.red");
+    fs::write(&main, src).unwrap();
+    let tree = redstart_loader::load(dir.path()).unwrap();
+    let plan = crate::plan_id_rewrites(&tree);
+
+    let mut edits: Vec<(usize, usize, String)> = plan
+        .rewrites
+        .iter()
+        .flat_map(|r| &r.edits)
+        .map(|e| (e.start, e.end, e.replacement.clone()))
+        .collect();
+    edits.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut out = fs::read_to_string(&main).unwrap();
+    for (start, end, repl) in edits {
+        out.replace_range(start..end, &repl);
+    }
+    (plan, out)
+}
+
+#[test]
+fn rewrite_ids_converts_inline_stringified_id() {
+    let src = with_string_id_holder(
+        "let h = Holder.create(event.params.from.toHexString(), { balance: BigInt.zero })",
+    );
+    let (plan, out) = rewrite_of(&src);
+    assert_eq!(plan.rewrites.len(), 1);
+    assert_eq!(plan.rewrites[0].entity, "Holder");
+    assert_eq!(plan.rewrites[0].sites, 1);
+    assert!(plan.skipped.is_empty());
+    // Declaration flipped and the `.toHexString()` dropped.
+    assert!(out.contains("id: Id<Bytes>"), "decl not flipped:\n{out}");
+    assert!(!out.contains("toHexString"), "suffix not dropped:\n{out}");
+    // And the rewritten program still checks clean.
+    assert!(run(&out).is_ok(), "rewritten source must check:\n{out}");
+}
+
+#[test]
+fn rewrite_ids_skips_entity_with_a_literal_id_site() {
+    // One convertible site + one literal-string site → skip the whole entity.
+    let src = with_string_id_holder(
+        "let a = Holder.create(event.params.from.toHexString(), { balance: BigInt.zero })\n\
+         let b = Holder.loadOrCreate(\"singleton\", { balance: BigInt.zero })",
+    );
+    let (plan, out) = rewrite_of(&src);
+    assert!(plan.rewrites.is_empty(), "must not rewrite a mixed entity");
+    assert_eq!(plan.skipped.len(), 1);
+    assert_eq!(plan.skipped[0].entity, "Holder");
+    // Source untouched — still a String id, still stringified.
+    assert!(out.contains("id: Id<String>"));
+    assert!(out.contains("toHexString"));
+}
+
+#[test]
+fn rewrite_ids_reports_via_local_but_does_not_convert() {
+    // A local holding `x.toHexString()` fires W040 (so it's a candidate) but v1
+    // won't rewrite through the local — it must be reported, never silent.
+    let src = with_string_id_holder(
+        "let id = event.params.to.toHexString()\n\
+         let h = Holder.create(id, { balance: BigInt.zero })",
+    );
+    let (plan, _out) = rewrite_of(&src);
+    assert!(plan.rewrites.is_empty());
+    assert_eq!(plan.skipped.len(), 1);
+    assert_eq!(plan.skipped[0].entity, "Holder");
+}
+
+#[test]
+fn rewrite_ids_leaves_composite_and_bytes_ids_alone() {
+    // A genuine composite key is really a String — not a candidate, nothing to do.
+    let composite = with_string_id_holder(
+        "let id = event.params.from.toHexString() + \"-\" + event.params.to.toHexString()\n\
+         let h = Holder.create(id, { balance: BigInt.zero })",
+    );
+    let (plan, _) = rewrite_of(&composite);
+    assert!(plan.rewrites.is_empty() && plan.skipped.is_empty());
+
+    // An already-Bytes id is never touched.
+    let bytes =
+        with_handler("let a = Account.loadOrCreate(event.params.to, { balance: BigInt.zero })");
+    let (plan, _) = rewrite_of(&bytes);
+    assert!(plan.rewrites.is_empty() && plan.skipped.is_empty());
+}
+
+#[test]
+fn rewrite_ids_is_idempotent() {
+    let src = with_string_id_holder(
+        "let h = Holder.create(event.params.from.toHexString(), { balance: BigInt.zero })",
+    );
+    let (_, once) = rewrite_of(&src);
+    // Feeding the converted source back in yields no further edits.
+    let (plan, twice) = rewrite_of(&once);
+    assert!(plan.rewrites.is_empty() && plan.skipped.is_empty());
+    assert_eq!(once, twice);
+}
+
 #[test]
 fn infers_immutable_for_append_only_entities() {
     let src = format!(

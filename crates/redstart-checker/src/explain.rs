@@ -236,7 +236,7 @@ static EXPLANATIONS: &[Explanation] = &[
         title: "entity id is a stringified address/bytes",
         summary: "An entity is keyed on a single `Bytes`/`Address` value stringified with `.toHexString()` / `.toHex()` — a hex-string id instead of a raw-bytes one.",
         prevents: "Needless indexing cost: a `Bytes` id (with immutability) indexes ~28% faster and stores ~48% less than the equivalent hex-string id (Edge & Node benchmark). Composite ids joined from several values are genuinely strings and are never flagged.",
-        fix: "Declare the entity `id: Id<Bytes>` and pass the raw `Bytes`/`Address`, dropping the `.toHexString()`. Note this changes the stored id representation, so re-deploy from the affected block.",
+        fix: "Declare the entity `id: Id<Bytes>` and pass the raw `Bytes`/`Address`, dropping the `.toHexString()` — or let `redstart fix --ids` do it for you (it converts an entity only when every id site is a single stringified value). Note this changes the stored id representation, so re-deploy from the affected block.",
     },
     Explanation {
         code: "W011",

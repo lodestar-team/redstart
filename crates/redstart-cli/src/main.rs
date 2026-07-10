@@ -88,6 +88,26 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Apply an opt-in mechanical rewrite to `.red` source.
+    ///
+    /// `redstart fix --ids` steers `String`-keyed entities to a `Bytes` id
+    /// (`Id<Bytes>` — faster to index, roughly half the disk) by flipping the
+    /// schema declaration and dropping the `.toHexString()` at every construction
+    /// site. It only converts an entity when *every* one of its id sites is a
+    /// single stringified address/bytes value; otherwise the entity is reported
+    /// and left untouched. Because a `Bytes` id changes the stored id value
+    /// (hex-string → raw bytes) this is a deliberate data change — hence opt-in.
+    Fix {
+        /// Path to a project directory, `redstart.toml`, or a `.red` file.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Rewrite `String` ids to `Bytes` ids (roadmap §4.3).
+        #[arg(long)]
+        ids: bool,
+        /// Show the changes without writing them.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Explain a diagnostic code — what it means, the bug it prevents, the fix.
     ///
     /// `redstart explain E062`, or `redstart explain` to list every code.
@@ -126,6 +146,7 @@ fn main() -> ExitCode {
             version_label.as_deref(),
             dry_run,
         ),
+        Command::Fix { path, ids, dry_run } => cmd_fix(&path, ids, dry_run),
         Command::Explain { code, json } => cmd_explain(code.as_deref(), json),
         Command::Lsp => {
             redstart_lsp::run();
@@ -658,6 +679,124 @@ fn cmd_fmt(path: &Path, check: bool) -> Result<(), String> {
         }
         Ok(())
     }
+}
+
+/// `redstart fix --ids`: rewrite `String`-keyed entities to `Bytes` ids in place.
+fn cmd_fix(path: &Path, ids: bool, dry_run: bool) -> Result<(), String> {
+    use std::collections::HashMap;
+
+    if !ids {
+        return Err(
+            "nothing to do — pass a fixer, e.g. `redstart fix --ids` (see `redstart fix --help`)"
+                .to_string(),
+        );
+    }
+
+    let tree = load(path)?;
+
+    // Autofix operates on source that already checks. Warnings (W040 is the whole
+    // point here) are fine; hard errors are not — rewriting broken source is asking
+    // for trouble.
+    let diags = redstart_checker::check_diags(&tree);
+    if diags.iter().any(redstart_checker::Diag::is_error) {
+        for d in diags.iter().filter(|d| d.is_error()) {
+            eprint!("{}", d.render());
+        }
+        return Err("fix aborted: resolve the errors above first".to_string());
+    }
+
+    let plan = redstart_checker::plan_id_rewrites(&tree);
+    if plan.rewrites.is_empty() && plan.skipped.is_empty() {
+        println!("✓ no `String` ids to rewrite — nothing to do");
+        return Ok(());
+    }
+
+    // Group every edit by file so overlapping entities in one file splice cleanly.
+    let mut by_file: HashMap<String, Vec<(usize, usize, String)>> = HashMap::new();
+    for r in &plan.rewrites {
+        println!(
+            "  ✓ {}  ({} site{}) → Id<Bytes>",
+            r.entity,
+            r.sites,
+            if r.sites == 1 { "" } else { "s" }
+        );
+        for e in &r.edits {
+            by_file.entry(e.file.clone()).or_default().push((
+                e.start,
+                e.end,
+                e.replacement.clone(),
+            ));
+        }
+    }
+    for s in &plan.skipped {
+        println!(
+            "  ⤫ {}  skipped: {} ({}:{})",
+            s.entity, s.reason, s.file, s.line
+        );
+    }
+
+    if plan.rewrites.is_empty() {
+        println!("\nnothing to rewrite — every candidate entity was skipped");
+        return Ok(());
+    }
+
+    if dry_run {
+        let files = by_file.len();
+        println!(
+            "\n{} entit{} across {file_word} — run without --dry-run to apply",
+            plan.rewrites.len(),
+            if plan.rewrites.len() == 1 { "y" } else { "ies" },
+            file_word = if files == 1 {
+                "1 file".to_string()
+            } else {
+                format!("{files} files")
+            }
+        );
+        return Ok(());
+    }
+
+    // Apply, deepest edit first so earlier offsets stay valid.
+    for (file, mut edits) in by_file {
+        let src =
+            std::fs::read_to_string(&file).map_err(|e| format!("could not read {file}: {e}"))?;
+        edits.sort_by(|a, b| b.0.cmp(&a.0));
+        let mut out = src;
+        for (start, end, repl) in edits {
+            if start > end || end > out.len() {
+                return Err(format!("internal error: stale edit offsets for {file}"));
+            }
+            out.replace_range(start..end, &repl);
+        }
+        std::fs::write(&file, &out).map_err(|e| format!("could not write {file}: {e}"))?;
+    }
+
+    // Prove the rewrite still checks — a Bytes id is a real change, so re-verify.
+    let tree = load(path)?;
+    let after = redstart_checker::check_diags(&tree);
+    let errors = after.iter().filter(|d| d.is_error()).count();
+    if errors > 0 {
+        for d in after.iter().filter(|d| d.is_error()) {
+            eprint!("{}", d.render());
+        }
+        return Err(format!(
+            "rewrote {} entit{}, but the result no longer checks ({errors} error(s)) — please review",
+            plan.rewrites.len(),
+            if plan.rewrites.len() == 1 { "y" } else { "ies" }
+        ));
+    }
+
+    let remaining = after.iter().filter(|d| d.code_short() == "W040").count();
+    let note = if remaining > 0 {
+        format!(" ({remaining} W040 site(s) remain — see the skipped entities above)")
+    } else {
+        String::new()
+    };
+    println!(
+        "\n✓ rewrote {} entit{} to `Id<Bytes>`, still checks clean{note}",
+        plan.rewrites.len(),
+        if plan.rewrites.len() == 1 { "y" } else { "ies" }
+    );
+    Ok(())
 }
 
 /// Collect `.red` files: a single file as-is, or all under a directory
