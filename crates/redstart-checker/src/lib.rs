@@ -708,11 +708,14 @@ fn check_handler(
         file,
         diags,
     );
+    let mut ident_freq = HashMap::new();
+    count_path_uses(&h.body.stmts, &mut ident_freq);
     collect_id_sites(
         &h.body.stmts,
         &ctx,
         &mut HashMap::new(),
-        &mut HashSet::new(),
+        &mut HashMap::new(),
+        &ident_freq,
         id_string_entities,
         file,
         sites,
@@ -757,11 +760,14 @@ fn check_fn(
         file,
         diags,
     );
+    let mut ident_freq = HashMap::new();
+    count_path_uses(&func.body.stmts, &mut ident_freq);
     collect_id_sites(
         &func.body.stmts,
         &ctx,
         &mut locals.clone(),
-        &mut HashSet::new(),
+        &mut HashMap::new(),
+        &ident_freq,
         id_string_entities,
         file,
         sites,
@@ -1389,13 +1395,36 @@ fn line_of(src: &str, off: usize) -> usize {
         .map_or(1, |s| s.bytes().filter(|&b| b == b'\n').count() + 1)
 }
 
+/// The `let`-RHS `.toHexString()` drop range for an id passed *via a local* —
+/// convertible only when the local holds a stringified single `Bytes`/`Address`
+/// (in `hex_locals`) *and* is referenced exactly once in the whole body (this
+/// site), so re-typing it to `Bytes` can't affect any other use.
+fn via_local_range(
+    id_arg: &Expr,
+    hex_locals: &HashMap<String, (usize, usize)>,
+    ident_freq: &HashMap<String, usize>,
+) -> Option<(usize, usize)> {
+    let Expr::Path { segments, .. } = id_arg else {
+        return None;
+    };
+    if segments.len() != 1 {
+        return None;
+    }
+    let name = &segments[0].name;
+    let range = *hex_locals.get(name)?;
+    (ident_freq.get(name).copied().unwrap_or(0) == 1).then_some(range)
+}
+
 /// Record a create/load id site (handler/fn body): convertible iff the id is a
-/// single stringified `Bytes`/`Address`, otherwise a blocker.
+/// single stringified `Bytes`/`Address` — inline, or via a use-once local — else
+/// a blocker.
+#[allow(clippy::too_many_arguments)]
 fn record_id_site(
     value: &Expr,
     ctx: &BodyCtx,
     locals: &HashMap<String, RTy>,
-    hex_locals: &HashSet<String>,
+    hex_locals: &HashMap<String, (usize, usize)>,
+    ident_freq: &HashMap<String, usize>,
     id_entities: &HashSet<String>,
     file: &str,
     out: &mut Vec<IdSite>,
@@ -1408,16 +1437,25 @@ fn record_id_site(
         return;
     }
     let kind = if stringified_single_bytes(id_arg, ctx, locals) {
+        // Inline: `E.create(x.toHexString(), …)` — drop the suffix at the site.
         let (start, end) = to_hex_drop_range(id_arg).expect("stringified id is a toHex call");
         SiteKind::Convertible { start, end }
+    } else if let Some((start, end)) = via_local_range(id_arg, hex_locals, ident_freq) {
+        // `let id = x.toHexString(); E.create(id, …)`, `id` used only here — drop
+        // the suffix on the `let` and flip the entity; the site itself is untouched.
+        SiteKind::Convertible { start, end }
     } else {
-        // A local holding `x.toHexString()` still fired W040 — the entity is a
-        // candidate, but v1 won't rewrite through the local, so it blocks.
+        // A local holding `x.toHexString()` still fired W040 (candidate entity),
+        // but it's reused elsewhere, so converting it isn't safe here.
         let via_local = matches!(id_arg, Expr::Path { segments, .. }
-            if segments.len() == 1 && hex_locals.contains(&segments[0].name));
+            if segments.len() == 1 && hex_locals.contains_key(&segments[0].name));
         let sp = id_arg.span();
         SiteKind::Blocker {
-            reason: id_blocker_reason(id_arg),
+            reason: if via_local {
+                "id built via a local that is used more than once (convert it by hand)".to_string()
+            } else {
+                id_blocker_reason(id_arg)
+            },
             line: line_of(&sp.source, sp.start),
             w040: via_local,
         }
@@ -1431,11 +1469,13 @@ fn record_id_site(
 
 /// Collect id-construction sites in a handler/fn body (mirrors the W040 walk so
 /// local types stay in scope for the `Bytes`/`Address` inference).
+#[allow(clippy::too_many_arguments)]
 fn collect_id_sites(
     stmts: &[Stmt],
     ctx: &BodyCtx,
     locals: &mut HashMap<String, RTy>,
-    hex_locals: &mut HashSet<String>,
+    hex_locals: &mut HashMap<String, (usize, usize)>,
+    ident_freq: &HashMap<String, usize>,
     id_entities: &HashSet<String>,
     file: &str,
     out: &mut Vec<IdSite>,
@@ -1443,19 +1483,48 @@ fn collect_id_sites(
     for stmt in stmts {
         match stmt {
             Stmt::Let { name, value, .. } => {
-                record_id_site(value, ctx, locals, hex_locals, id_entities, file, out);
+                record_id_site(
+                    value,
+                    ctx,
+                    locals,
+                    hex_locals,
+                    ident_freq,
+                    id_entities,
+                    file,
+                    out,
+                );
                 if stringified_single_bytes(value, ctx, locals) {
-                    hex_locals.insert(name.name.clone());
+                    if let Some(range) = to_hex_drop_range(value) {
+                        hex_locals.insert(name.name.clone(), range);
+                    }
                 } else {
                     hex_locals.remove(&name.name);
                 }
                 locals.insert(name.name.clone(), infer(value, ctx, locals));
             }
             Stmt::Assign { value, .. } => {
-                record_id_site(value, ctx, locals, hex_locals, id_entities, file, out);
+                record_id_site(
+                    value,
+                    ctx,
+                    locals,
+                    hex_locals,
+                    ident_freq,
+                    id_entities,
+                    file,
+                    out,
+                );
             }
             Stmt::Return { value: Some(v), .. } => {
-                record_id_site(v, ctx, locals, hex_locals, id_entities, file, out);
+                record_id_site(
+                    v,
+                    ctx,
+                    locals,
+                    hex_locals,
+                    ident_freq,
+                    id_entities,
+                    file,
+                    out,
+                );
             }
             Stmt::Return { .. } => {}
             Stmt::If {
@@ -1469,6 +1538,7 @@ fn collect_id_sites(
                     ctx,
                     &mut locals.clone(),
                     &mut hex_locals.clone(),
+                    ident_freq,
                     id_entities,
                     file,
                     out,
@@ -1479,6 +1549,7 @@ fn collect_id_sites(
                         ctx,
                         &mut locals.clone(),
                         &mut hex_locals.clone(),
+                        ident_freq,
                         id_entities,
                         file,
                         out,
@@ -1490,6 +1561,7 @@ fn collect_id_sites(
                         ctx,
                         &mut locals.clone(),
                         &mut hex_locals.clone(),
+                        ident_freq,
                         id_entities,
                         file,
                         out,
@@ -1502,6 +1574,7 @@ fn collect_id_sites(
                     ctx,
                     &mut locals.clone(),
                     &mut hex_locals.clone(),
+                    ident_freq,
                     id_entities,
                     file,
                     out,
@@ -1515,6 +1588,7 @@ fn collect_id_sites(
                     ctx,
                     &mut l,
                     &mut hex_locals.clone(),
+                    ident_freq,
                     id_entities,
                     file,
                     out,
@@ -1528,16 +1602,118 @@ fn collect_id_sites(
                             ctx,
                             &mut locals.clone(),
                             &mut hex_locals.clone(),
+                            ident_freq,
                             id_entities,
                             file,
                             out,
                         );
                     }
                 } else {
-                    record_id_site(e, ctx, locals, hex_locals, id_entities, file, out);
+                    record_id_site(
+                        e,
+                        ctx,
+                        locals,
+                        hex_locals,
+                        ident_freq,
+                        id_entities,
+                        file,
+                        out,
+                    );
                 }
             }
         }
+    }
+}
+
+/// Count single-segment path identifier *uses* across a body (not `let` bindings,
+/// which are `Ident`s, not `Path`s) — so `freq[name] == 1` means "used exactly
+/// once". Powers the use-once safety check for converting a via-a-local id.
+fn count_path_uses(stmts: &[Stmt], freq: &mut HashMap<String, usize>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { value, .. } => count_paths_expr(value, freq),
+            Stmt::Assign { target, value, .. } => {
+                count_paths_expr(target, freq);
+                count_paths_expr(value, freq);
+            }
+            Stmt::Return { value: Some(v), .. } => count_paths_expr(v, freq),
+            Stmt::Return { .. } => {}
+            Stmt::If {
+                cond,
+                then_block,
+                else_ifs,
+                else_block,
+                ..
+            } => {
+                count_paths_expr(cond, freq);
+                count_path_uses(&then_block.stmts, freq);
+                for (c, b) in else_ifs {
+                    count_paths_expr(c, freq);
+                    count_path_uses(&b.stmts, freq);
+                }
+                if let Some(b) = else_block {
+                    count_path_uses(&b.stmts, freq);
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                count_paths_expr(cond, freq);
+                count_path_uses(&body.stmts, freq);
+            }
+            Stmt::For { iter, body, .. } => {
+                match iter {
+                    ForIter::Range { start, end } => {
+                        count_paths_expr(start, freq);
+                        count_paths_expr(end, freq);
+                    }
+                    ForIter::Each(e) => count_paths_expr(e, freq),
+                }
+                count_path_uses(&body.stmts, freq);
+            }
+            Stmt::Expr(e) => count_paths_expr(e, freq),
+        }
+    }
+}
+
+fn count_paths_expr(e: &Expr, freq: &mut HashMap<String, usize>) {
+    match e {
+        Expr::Path { segments, .. } if segments.len() == 1 => {
+            *freq.entry(segments[0].name.clone()).or_default() += 1;
+        }
+        Expr::Field { base, .. } => count_paths_expr(base, freq),
+        Expr::Call { callee, args, .. } => {
+            count_paths_expr(callee, freq);
+            for a in args {
+                count_paths_expr(a, freq);
+            }
+        }
+        Expr::Record { fields, .. } => {
+            for (_, v) in fields {
+                count_paths_expr(v, freq);
+            }
+        }
+        Expr::Array { elems, .. } => {
+            for x in elems {
+                count_paths_expr(x, freq);
+            }
+        }
+        Expr::Index { base, index, .. } => {
+            count_paths_expr(base, freq);
+            count_paths_expr(index, freq);
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            count_paths_expr(lhs, freq);
+            count_paths_expr(rhs, freq);
+        }
+        Expr::Unary { expr, .. } => count_paths_expr(expr, freq),
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            count_paths_expr(scrutinee, freq);
+            for arm in arms {
+                count_path_uses(&arm.body.stmts, freq);
+            }
+        }
+        _ => {}
     }
 }
 

@@ -6,6 +6,21 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-10
+
+Optimising compiler — roadmap §4.3 (`fix --ids` completeness).
+
+### Changed
+- **`redstart fix --ids` now converts the via-a-local id pattern.** The most common
+  real-world shape — `let id = addr.toHexString(); Entity.create(id, …)` — is now
+  auto-converted (previously reported and skipped): the `.toHexString()` is dropped
+  on the `let` binding, the construction site is left untouched, and the entity is
+  flipped to `Id<Bytes>`. It stays conservative: the local is converted only when it
+  is used **exactly once** in the handler/function body (that single id site), so
+  re-typing it to `Bytes` can't affect any other reader. A local that is read again
+  (logged, concatenated, used as a second id) is still reported and left untouched
+  (`⤫ … id built via a local that is used more than once`).
+
 ## [0.13.0] - 2026-07-10
 
 Optimising compiler — roadmap §4.4 (stored arrays → `@derivedFrom`).

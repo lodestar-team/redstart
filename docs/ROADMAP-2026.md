@@ -238,11 +238,12 @@ directly or via a local) and recommends `id: Id<Bytes>`. Deliberately a *warning
 not an auto-rewrite: a String→Bytes id changes the stored id value (hex-string → raw
 bytes), so — unlike immutability, which is store-identical — it is a data change the
 author opts into (re-deploy from the affected block). Composite keys and literal-string
-ids are never flagged. **✅ [AUTO] (v0.12.0):** `redstart fix --ids` performs the
-conversion — flips the declaration to `Id<Bytes>` and drops the `.toHexString()` at every
-site in one pass — but only when *every* id site of the entity is a single stringified
-value (one literal/composite/via-local site and the whole entity is reported and left
-untouched, so it never emits code that fails to check). `--dry-run` previews. When a type
+ids are never flagged. **✅ [AUTO] (v0.12.0, extended v0.14.0):** `redstart fix --ids`
+performs the conversion — flips the declaration to `Id<Bytes>` and drops the `.toHexString()`
+at every site in one pass — but only when *every* id site of the entity is a single stringified
+value (one literal/composite site and the whole entity is reported and left untouched, so it
+never emits code that fails to check). v0.14.0 also handles the common `let id = x.toHexString();
+E.create(id, …)` shape, when `id` is used exactly once. `--dry-run` previews. When a type
 is only ever `new`-constructed +
 `.save()`d (never load-then-mutate anywhere), emit `@entity(immutable: true)`.
 (Redstart already does this for timeseries — generalise it.) Caveat: figures are "up to"

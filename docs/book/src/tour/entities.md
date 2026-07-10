@@ -53,11 +53,12 @@ $ redstart fix --ids            # or --dry-run to preview
 ```
 
 It flips the entity's declaration to `Id<Bytes>` and drops the `.toHexString()`
-at every construction site, in one pass. It is deliberately conservative: an
-entity is only converted when *every* one of its id sites is a single stringified
-address/bytes value — one literal-string or composite (`a + "-" + b`) id and the
-whole entity is left untouched and reported. Genuine composite keys are really
-strings and stay `Id<String>`.
+at every construction site, in one pass — including the common `let id =
+addr.toHexString(); E.create(id, …)` shape (when `id` is used only there). It is
+deliberately conservative: an entity is only converted when *every* one of its id
+sites is a single stringified address/bytes value — one literal-string or composite
+(`a + "-" + b`) id and the whole entity is left untouched and reported. Genuine
+composite keys are really strings and stay `Id<String>`.
 
 Because a `Bytes` id changes the *stored* id representation (hex-string → raw
 bytes), this is a real data change — redeploy affected subgraphs from the

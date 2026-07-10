@@ -541,17 +541,41 @@ fn rewrite_ids_skips_entity_with_a_literal_id_site() {
 }
 
 #[test]
-fn rewrite_ids_reports_via_local_but_does_not_convert() {
-    // A local holding `x.toHexString()` fires W040 (so it's a candidate) but v1
-    // won't rewrite through the local — it must be reported, never silent.
+fn rewrite_ids_converts_via_use_once_local() {
+    // `let id = x.toHexString(); E.create(id, …)` with `id` used only here — the
+    // `.toHexString()` is dropped on the `let`, the site is untouched.
     let src = with_string_id_holder(
         "let id = event.params.to.toHexString()\n\
          let h = Holder.create(id, { balance: BigInt.zero })",
     );
-    let (plan, _out) = rewrite_of(&src);
-    assert!(plan.rewrites.is_empty());
+    let (plan, out) = rewrite_of(&src);
+    assert_eq!(plan.rewrites.len(), 1);
+    assert_eq!(plan.rewrites[0].entity, "Holder");
+    assert!(plan.skipped.is_empty());
+    assert!(out.contains("id: Id<Bytes>"));
+    assert!(
+        out.contains("let id = event.params.to\n"),
+        "let not rewritten:\n{out}"
+    );
+    assert!(!out.contains("toHexString"));
+    assert!(run(&out).is_ok(), "rewritten source must check:\n{out}");
+}
+
+#[test]
+fn rewrite_ids_skips_reused_local() {
+    // The local is read again (here as another create id), so re-typing it to
+    // `Bytes` isn't safe — report it, don't convert.
+    let src = with_string_id_holder(
+        "let id = event.params.to.toHexString()\n\
+         let h = Holder.create(id, { balance: BigInt.zero })\n\
+         let g = Holder.loadOrCreate(id, { balance: BigInt.zero })",
+    );
+    let (plan, out) = rewrite_of(&src);
+    assert!(plan.rewrites.is_empty(), "reused local must not convert");
     assert_eq!(plan.skipped.len(), 1);
     assert_eq!(plan.skipped[0].entity, "Holder");
+    assert!(out.contains("id: Id<String>"));
+    assert!(out.contains("toHexString"));
 }
 
 #[test]
