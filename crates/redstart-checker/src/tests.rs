@@ -449,6 +449,32 @@ fn check_project(src: &str) -> crate::Checked {
     crate::check(&tree).expect("should check")
 }
 
+#[test]
+fn warns_on_stored_entity_array() {
+    // A stored `[Account]` (not `derived from`) is the O(n²) anti-pattern.
+    let src = format!("{PREAMBLE}\nentity Pool {{ id: Id<Bytes> accounts: [Account] }}\n");
+    assert_warns(&src, "W050");
+}
+
+#[test]
+fn no_w050_for_scalar_arrays() {
+    // Scalar/enum arrays are genuinely stored values — never flagged.
+    let src =
+        format!("{PREAMBLE}\nentity Pool {{ id: Id<Bytes> tags: [String] nums: [BigInt] }}\n");
+    assert_no_warn(&src, "W050");
+}
+
+#[test]
+fn no_w050_for_derived_relation() {
+    // The recommended form must stay clean.
+    let src = format!(
+        "{PREAMBLE}\nentity Pool {{ id: Id<Bytes> accs: [Account] derived from owner }}\n\
+         entity Owned {{ id: Id<Bytes> }}\n"
+    );
+    // (Account has no `owner` back-ref, so E-code may fire, but never W050.)
+    assert_no_warn(&src, "W050");
+}
+
 // ---- id rewrite (`redstart fix --ids`) ------------------------------------
 
 /// Build a one-file project, plan the id rewrite, and apply its edits to the

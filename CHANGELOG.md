@@ -6,6 +6,26 @@ pulls the section matching each tag into the GitHub Release notes.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-10
+
+Optimising compiler — roadmap §4.4 (stored arrays → `@derivedFrom`).
+
+### Added
+- **W050 — stored array of entity references.** The checker now flags an entity
+  field typed `[Child]` (a *stored* array of another entity, not a `derived from`
+  relation) and steers to `@derivedFrom`. graph-node keeps such arrays inline and
+  rewrites the whole array into a new versioned row on every append, so a growing
+  one-to-many is **O(n²) on disk**; a `@derivedFrom` reverse lookup is computed on
+  read and never stored. Scalar and enum arrays (`[String]`, `[BigInt]`,
+  `[TokenStandard]`) are genuinely stored values and are never flagged, and the
+  recommended `derived from` form stays clean. The diagnostic suggests a concrete
+  back-ref field name. Registered in `redstart explain W050`. Brings the
+  diagnostic catalogue to 32 codes (26 errors, 6 warnings).
+
+  Like W040, this is a warning rather than an auto-rewrite: the migration needs a
+  back-ref field the author chooses (and it changes the stored data model), so it
+  can't be applied mechanically the way immutability inference can.
+
 ## [0.12.0] - 2026-07-10
 
 Optimising compiler — roadmap §4.3 (Bytes-ids, the rewrite half).

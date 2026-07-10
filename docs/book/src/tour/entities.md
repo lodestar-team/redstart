@@ -63,6 +63,39 @@ Because a `Bytes` id changes the *stored* id representation (hex-string → raw
 bytes), this is a real data change — redeploy affected subgraphs from the
 relevant block.
 
+## One-to-many relations: `derived from`, not stored arrays
+
+To model "a Pool has many Accounts", reach for a derived relation — never a stored
+array of entity references:
+
+```redstart
+entity Account {
+  id: Id<Bytes>
+  pool: Pool                       // the back-reference
+}
+
+entity Pool {
+  id: Id<Bytes>
+  accounts: [Account] derived from pool   // computed, never stored
+}
+```
+
+A *stored* `[Account]` (an entity array without `derived from`) is kept inline by
+graph-node, which rewrites the entire array into a new versioned row on every
+append — **O(n²) disk** as the relation grows. A `derived from` field is a reverse
+lookup computed on read, so appends stay O(1). The checker flags the stored form
+with **W050**:
+
+```console
+$ redstart check
+  ! `accounts` stores an array of `Account` entities
+  help: model this one-to-many with `@derivedFrom`: add a back-ref field on
+        `Account` (e.g. `pool: Pool`) and declare `accounts: [Account] derived from pool`
+```
+
+Scalar and enum arrays (`[String]`, `[BigInt]`, `[TokenStandard]`) are genuinely
+stored values and are never flagged — only arrays of *entities* are.
+
 ## Enums, interfaces, and scalars
 
 ```redstart

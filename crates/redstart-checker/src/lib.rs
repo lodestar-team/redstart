@@ -361,7 +361,60 @@ fn check_entity(
         validate_type(&f.ty, entity_names, aux_types, file, diags);
         if let Some(back) = &f.derived_from {
             check_derived(f, back, meta, entity_names, file, diags);
+        } else {
+            warn_stored_entity_array(e, f, entity_names, file, diags);
         }
+    }
+}
+
+/// Warn (W050, §4.4) on a *stored* array of entity references — a field typed
+/// `[Child]` where `Child` is an entity and the field is not `derived from`.
+/// graph-node stores such arrays inline and rewrites the whole array into a new
+/// versioned row on every append, so growth is O(n²) on disk. The one-to-many
+/// should be modelled with `@derivedFrom` (a computed reverse lookup) instead.
+/// Scalar and enum arrays (`[String]`, `[BigInt]`, `[TokenStandard]`) are
+/// genuinely stored values and never fire.
+fn warn_stored_entity_array(
+    e: &EntityDecl,
+    f: &FieldDecl,
+    entity_names: &[String],
+    file: &str,
+    diags: &mut Vec<Diag>,
+) {
+    let TypeExpr::List { elem, .. } = &f.ty else {
+        return;
+    };
+    let Some(child) = elem.simple_name() else {
+        return;
+    };
+    if !entity_names.iter().any(|n| n == child) {
+        return;
+    }
+    diags.push(
+        Diag::new(
+            file,
+            f.ty.span(),
+            "W050",
+            format!("`{}` stores an array of `{child}` entities", f.name.name),
+            "graph-node copies the whole array on every append — O(n²) disk as it grows",
+        )
+        .warning()
+        .with_help(format!(
+            "model this one-to-many with `@derivedFrom`: add a back-ref field on `{child}` (e.g. `{back}: {parent}`) and declare `{field}: [{child}] derived from {back}`",
+            back = lower_first(&e.name.name),
+            parent = e.name.name,
+            field = f.name.name,
+        )),
+    );
+}
+
+/// Lowercase the first character of a type name for a suggested field name
+/// (`Indexer` → `indexer`).
+fn lower_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(first) => first.to_lowercase().collect::<String>() + c.as_str(),
+        None => String::new(),
     }
 }
 

@@ -251,11 +251,16 @@ shows a regression case) — so gate behind a confidence check / opt-out.
 *Refs:* [bytes-as-ids](https://thegraph.com/docs/en/subgraphs/best-practices/immutable-entities-bytes-as-ids/) ·
 [benchmark](https://medium.com/edge-node-engineering/two-simple-subgraph-performance-improvements-a76c6b3e7eac)
 
-### 4.4 🔜 [AUTO/WARN] Growing stored array → `@derivedFrom`
+### 4.4 ✅→🔜 [WARN/AUTO] Growing stored array → `@derivedFrom` (W050, v0.13.0)
 A stored `[Child!]!` mutated via `.push()`+`.save()` is O(n²) disk (every append
 copies the whole array into a new versioned row; harmful beyond ~thousands, tolerable
-< ~50). Detect it and synthesise the migration: add a back-ref field on the child,
-annotate the parent `@derivedFrom`, rewrite `push` → `child.save()`.
+< ~50). **✅ [WARN] (v0.13.0):** W050 flags an entity field `[Child]` (a stored array
+of another entity, not `derived from`) and steers to `@derivedFrom` with a suggested
+back-ref name. Scalar/enum arrays never fire; the `derived from` form stays clean.
+Like W040 it's a warning not an auto-rewrite — the migration needs an author-chosen
+back-ref field and changes the stored data model. **🔜 [AUTO] next:** synthesise the
+migration when the back-ref is unambiguous — add the child field, annotate the parent
+`@derivedFrom`, rewrite the array mutation to `child.save()`.
 *Refs:* [derivedFrom](https://thegraph.com/docs/en/subgraphs/best-practices/derivedfrom/) ·
 [avoid large arrays](https://thegraph.com/blog/improve-subgraph-performance-avoiding-large-arrays/)
 
@@ -392,7 +397,7 @@ a release, each with a `run.sh all` "0 diffs but N% faster" proof.*
    gate-proven erc20 annotations. ✅ **Bytes-id half (§4.3, v0.11.0)** — W040 flags a
    single address/bytes stringified into the id, steering to `Id<Bytes>` (~28%/48%).
    ✅ **`fix --ids` auto-conversion (§4.3, v0.12.0)** — opt-in, gated on all-sites-convertible.
-2. **Stored-array → `@derivedFrom` rewrite (§4.4)** — O(n²) → O(n) disk.
+2. **Stored-array → `@derivedFrom` (§4.4)** — O(n²) → O(n) disk. ✅ **W050 warn (v0.13.0)**; AUTO synthesis next.
 3. ✅ **`prune: auto` default (§4.5, v0.10.0)** — smaller DB, faster queries, for free.
 4. **Load coalescing / loop-invariant hoist (§4.6)**.
 

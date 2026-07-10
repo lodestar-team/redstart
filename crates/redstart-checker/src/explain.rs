@@ -239,6 +239,13 @@ static EXPLANATIONS: &[Explanation] = &[
         fix: "Declare the entity `id: Id<Bytes>` and pass the raw `Bytes`/`Address`, dropping the `.toHexString()` — or let `redstart fix --ids` do it for you (it converts an entity only when every id site is a single stringified value). Note this changes the stored id representation, so re-deploy from the affected block.",
     },
     Explanation {
+        code: "W050",
+        title: "stored array of entity references",
+        summary: "An entity field is a *stored* array of another entity (`[Child]`), not a `derived from` relation. graph-node keeps such arrays inline.",
+        prevents: "Quadratic write amplification: every append copies the entire array into a new versioned row, so a growing relation is O(n²) on disk (harmful beyond ~thousands of elements; tolerable only for small, bounded sets). Scalar/enum arrays (`[String]`, `[BigInt]`) are genuinely stored and never flagged.",
+        fix: "Model the one-to-many with `@derivedFrom`: add a back-ref field on the child pointing at the parent, then declare the array `field: [Child] derived from <back-ref>`. The reverse lookup is computed on read, never stored — O(1) appends.",
+    },
+    Explanation {
         code: "W011",
         title: "unfiltered block handler",
         summary: "A `handler block Src` with no `every N` or `once` runs on every block of the entire chain.",
